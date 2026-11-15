@@ -1,0 +1,164 @@
+@import "katex/dist/katex.min.css";
+@import "highlight.js/styles/github.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.paged-preview-canvas .pagedjs_pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 28px 24px 64px 24px;
+}
+
+.paged-preview-canvas.layout-spread .pagedjs_pages {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  justify-content: center;
+  align-items: start;
+  gap: 28px 14px;
+}
+
+.paged-preview-canvas.layout-spread.has-cover .pagedjs_page:first-child {
+  grid-column: 2;
+}
+
+.paged-preview-canvas .pagedjs_page {
+  background-color: #ffffff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38), 0 2px 6px rgba(0, 0, 0, 0.22);
+  position: relative;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* =========================================================
+ * レイアウト境界線・デバッグ可視化（余白ガイド ON または ?debug=true 時）
+ * ========================================================= */
+.paged-preview-canvas.show-margin-guides .pagedjs_page,
+body.debug-layout .paged-preview-canvas .pagedjs_page {
+  outline: 2px solid #ef4444 !important; /* 赤実線：用紙外枠 */
+  outline-offset: -2px;
+}
+
+.paged-preview-canvas.show-margin-guides .pagedjs_pagebox,
+body.debug-layout .paged-preview-canvas .pagedjs_pagebox {
+  outline: 1.5px dashed #3b82f6 !important; /* 青破線：余白内側の印刷エリア */
+  outline-offset: -1.5px;
+}
+
+.paged-preview-canvas.show-margin-guides .pagedjs_area,
+body.debug-layout .paged-preview-canvas .pagedjs_area {
+  outline: 1px dotted #10b981 !important; /* 緑点線：本文コンテンツ領域 */
+  background-color: rgba(16, 185, 129, 0.03) !important;
+}
+
+.paged-preview-canvas.show-margin-guides .pagedjs_margin-top,
+.paged-preview-canvas.show-margin-guides .pagedjs_margin-bottom,
+.paged-preview-canvas.show-margin-guides .pagedjs_margin-left,
+.paged-preview-canvas.show-margin-guides .pagedjs_margin-right,
+body.debug-layout .paged-preview-canvas .pagedjs_margin-top,
+body.debug-layout .paged-preview-canvas .pagedjs_margin-bottom,
+body.debug-layout .paged-preview-canvas .pagedjs_margin-left,
+body.debug-layout .paged-preview-canvas .pagedjs_margin-right {
+  outline: 1px dashed rgba(245, 158, 11, 0.75) !important; /* 橙破線：ヘッダー/フッター領域 */
+  background-color: rgba(245, 158, 11, 0.05) !important;
+}
+
+.paged-preview-canvas.show-margin-guides .pagedjs_page:last-child::before,
+body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::before {
+  content: "LAST PAGE END";
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  z-index: 9999;
+  padding: 2px 6px;
+  font-family: monospace;
+  font-size: 10px;
+  color: #ffffff;
+  background-color: #2563eb;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+@media print {
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-workspace-shell,
+  .print-preview-pane,
+  .print-scroll-container,
+  .print-zoom-wrapper {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    transform: none !important;
+    zoom: 1 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+  }
+
+  .paged-preview-canvas .pagedjs_pages,
+  .paged-preview-canvas.layout-spread .pagedjs_pages {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    gap: 0 !important;
+  }
+
+  .paged-preview-canvas .pagedjs_page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  /* 【修正】最終ページの直後には強制改ページを入れない（空白1ページ防止） */
+  .paged-preview-canvas .pagedjs_page:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+
+  /* 印刷時はガイド線を完全に消去 */
+  .paged-preview-canvas.show-margin-guides .pagedjs_page,
+  .paged-preview-canvas.show-margin-guides .pagedjs_pagebox,
+  .paged-preview-canvas.show-margin-guides .pagedjs_area,
+  .paged-preview-canvas.show-margin-guides .pagedjs_margin-top,
+  .paged-preview-canvas.show-margin-guides .pagedjs_margin-bottom,
+  .paged-preview-canvas.show-margin-guides .pagedjs_margin-left,
+  .paged-preview-canvas.show-margin-guides .pagedjs_margin-right,
+  body.debug-layout .paged-preview-canvas .pagedjs_page,
+  body.debug-layout .paged-preview-canvas .pagedjs_pagebox,
+  body.debug-layout .paged-preview-canvas .pagedjs_area,
+  body.debug-layout .paged-preview-canvas .pagedjs_margin-top,
+  body.debug-layout .paged-preview-canvas .pagedjs_margin-bottom,
+  body.debug-layout .paged-preview-canvas .pagedjs_margin-left,
+  body.debug-layout .paged-preview-canvas .pagedjs_margin-right {
+    outline: none !important;
+    background-color: transparent !important;
+  }
+
+  .paged-preview-canvas.show-margin-guides .pagedjs_page:last-child::before,
+  body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::before {
+    display: none !important;
+  }
+}
