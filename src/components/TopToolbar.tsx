@@ -200,6 +200,7 @@ export function TopToolbar({
         <button
           type="button"
           onClick={onToggleSettings}
+          aria-expanded={isSettingsOpen}
           className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
             isSettingsOpen
               ? "border-sky-500 bg-sky-600/20 text-sky-300"

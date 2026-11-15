@@ -9,11 +9,15 @@ import {
   Palette,
   RotateCcw,
   Settings2,
+  ShieldAlert,
   Trash2,
   Type,
   X,
 } from "lucide-react";
+import { resolveAssetSrc } from "@/lib/markdown";
 import type {
+  ConfidentialMode,
+  CoverOverlayMode,
   DocumentFrontmatter,
   DocumentTheme,
   FontFamilyOption,
@@ -37,8 +41,16 @@ const VARIABLE_CHIPS = [
   "{title}",
   "{date}",
   "{author}",
+  "{recipient}",
   "{page}",
   "{pages}",
+] as const;
+
+const CONFIDENTIAL_LABEL_PRESETS = [
+  "CONFIDENTIAL",
+  "社外秘",
+  "取扱注意",
+  "極秘",
 ] as const;
 
 const THEME_CARDS: Array<{
@@ -83,6 +95,116 @@ const THEME_CARDS: Array<{
   },
 ];
 
+interface ImageDropFieldProps {
+  label: string;
+  value: string;
+  resolvedSrc: string;
+  assetId: string;
+  onSave: (assetId: string, dataUrl: string) => Promise<void>;
+  onRemove: (assetId: string) => Promise<void>;
+  onChangeValue: (nextVal: string) => void;
+}
+
+function ImageDropField({
+  label,
+  value,
+  resolvedSrc,
+  assetId,
+  onSave,
+  onRemove,
+  onChangeValue,
+}: ImageDropFieldProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const processFile = (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      if (typeof reader.result === "string") {
+        await onSave(assetId, reader.result);
+        onChangeValue(assetId);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[11px] text-slate-400">{label}</label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) processFile(file);
+          e.target.value = "";
+        }}
+      />
+
+      {resolvedSrc ? (
+        <div className="flex items-center justify-between rounded border border-slate-700 bg-slate-950 p-2">
+          <img
+            src={resolvedSrc}
+            alt={label}
+            className="max-h-10 max-w-[160px] object-contain"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              if (value.startsWith("asset:")) {
+                await onRemove(value);
+              }
+              onChangeValue("");
+            }}
+            title="画像を削除"
+            aria-label={`${label}を削除`}
+            className="rounded p-1.5 text-red-400 hover:bg-red-950/50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) processFile(file);
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label={`${label}を選択またはドラッグ＆ドロップ`}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              inputRef.current?.click();
+            }
+          }}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-md border border-dashed px-3 py-3 text-center transition ${
+            isDragging
+              ? "border-sky-400 bg-sky-500/10"
+              : "border-slate-700 bg-slate-950/60 hover:border-slate-500"
+          }`}
+        >
+          <ImagePlus className="mb-1 h-4 w-4 text-slate-400" />
+          <span className="text-[10px] text-slate-300">
+            ドラッグ＆ドロップ または クリックして選択
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DocumentSettingsDrawer({
   isOpen,
   onClose,
@@ -95,6 +217,7 @@ export function DocumentSettingsDrawer({
   const [openSections, setOpenSections] = useState({
     basic: true,
     theme: true,
+    confidential: true,
     structure: true,
     headerFooter: true,
   });
@@ -102,8 +225,6 @@ export function DocumentSettingsDrawer({
   const [focusedField, setFocusedField] = useState<
     "header_left" | "header_right" | "footer_left" | "footer_right"
   >("header_left");
-  const [isDraggingLogo, setIsDraggingLogo] = useState(false);
-  const logoInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -134,22 +255,15 @@ export function DocumentSettingsDrawer({
     updateField(focusedField, current ? `${current} ${chip}` : chip);
   };
 
-  const processLogoFile = (file: File) => {
-    if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      if (typeof reader.result === "string") {
-        const assetId = "asset:logo_1";
-        await onSaveAsset(assetId, reader.result);
-        updateField("logo", assetId);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const resolvedLogoSrc = frontmatter.logo.startsWith("asset:")
-    ? assets[frontmatter.logo] || ""
-    : frontmatter.logo;
+  const resolvedLogoSrc = frontmatter.logo
+    ? resolveAssetSrc(frontmatter.logo, assets)
+    : "";
+  const resolvedCoverImageSrc = frontmatter.cover_image
+    ? resolveAssetSrc(frontmatter.cover_image, assets)
+    : "";
+  const resolvedBackCoverImageSrc = frontmatter.back_cover_image
+    ? resolveAssetSrc(frontmatter.back_cover_image, assets)
+    : "";
 
   const activeThemeDefaults =
     THEME_CARDS.find((t) => t.id === frontmatter.theme) ?? THEME_CARDS[0];
@@ -174,11 +288,13 @@ export function DocumentSettingsDrawer({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-800 text-xs">
+      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] divide-y divide-slate-800 text-xs">
+        {/* 1. 基本・用紙設定 */}
         <section>
           <button
             type="button"
             onClick={() => toggleSection("basic")}
+            aria-expanded={openSections.basic}
             className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
           >
             <span className="flex items-center gap-2">
@@ -195,14 +311,17 @@ export function DocumentSettingsDrawer({
           {openSections.basic && (
             <div className="space-y-3 px-4 pb-4 pt-1">
               <div>
-                <label className="mb-1 block text-[11px] text-slate-400">
-                  タイトル
+                <label className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
+                  <span>タイトル</span>
+                  <span className="text-[10px] text-slate-500">
+                    Enter / \n / &lt;br&gt; で改行可
+                  </span>
                 </label>
-                <input
-                  type="text"
+                <textarea
+                  rows={2}
                   value={frontmatter.title}
                   onChange={(e) => updateField("title", e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                  className="w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs leading-relaxed text-white focus:border-sky-500 focus:outline-none"
                 />
               </div>
 
@@ -241,6 +360,19 @@ export function DocumentSettingsDrawer({
                     className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  配布先（顧客名・担当者名）
+                </label>
+                <input
+                  type="text"
+                  placeholder="例: 株式会社〇〇 セキュリティ推進部 御中"
+                  value={frontmatter.recipient}
+                  onChange={(e) => updateField("recipient", e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -285,10 +417,123 @@ export function DocumentSettingsDrawer({
           )}
         </section>
 
+        {/* 2. 機密表示・透かし設定 */}
+        <section>
+          <button
+            type="button"
+            onClick={() => toggleSection("confidential")}
+            aria-expanded={openSections.confidential}
+            className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
+          >
+            <span className="flex items-center gap-2">
+              <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
+              機密表示・透かし設定
+            </span>
+            {openSections.confidential ? (
+              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+            )}
+          </button>
+
+          {openSections.confidential && (
+            <div className="space-y-3 px-4 pb-4 pt-1">
+              <div className="space-y-1.5">
+                {(
+                  [
+                    {
+                      value: "none",
+                      label: "1. 機密表示なし",
+                      desc: "ラベル・透かしを表示しません",
+                    },
+                    {
+                      value: "standard",
+                      label: "2. 標準モード",
+                      desc: "右ヘッダー・左フッターへ機密ラベルを自動合成",
+                    },
+                    {
+                      value: "strict",
+                      label: "3. 厳格モード",
+                      desc: "ヘッダー/フッター＋目次・本文に対角線透かしを描画",
+                    },
+                  ] as Array<{
+                    value: ConfidentialMode;
+                    label: string;
+                    desc: string;
+                  }>
+                ).map((opt) => {
+                  const active = frontmatter.confidential_mode === opt.value;
+                  return (
+                    <label
+                      key={opt.value}
+                      className={`flex cursor-pointer items-start gap-2 rounded border p-2 transition ${
+                        active
+                          ? "border-amber-500/70 bg-amber-500/10"
+                          : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="confidential_mode"
+                        value={opt.value}
+                        checked={active}
+                        onChange={() =>
+                          updateField("confidential_mode", opt.value)
+                        }
+                        className="mt-0.5 accent-amber-500"
+                      />
+                      <div className="min-w-0">
+                        <div className="font-medium text-white">
+                          {opt.label}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {opt.desc}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {frontmatter.confidential_mode !== "none" && (
+                <div className="space-y-2 rounded border border-slate-800 bg-slate-950/60 p-2.5">
+                  <div>
+                    <label className="mb-1 block text-[10px] text-slate-400">
+                      機密ラベル文字列
+                    </label>
+                    <input
+                      type="text"
+                      value={frontmatter.confidential_label}
+                      onChange={(e) =>
+                        updateField("confidential_label", e.target.value)
+                      }
+                      className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {CONFIDENTIAL_LABEL_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => updateField("confidential_label", preset)}
+                        className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-slate-700"
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 3. デザインテーマ & カスタマイズ */}
         <section>
           <button
             type="button"
             onClick={() => toggleSection("theme")}
+            aria-expanded={openSections.theme}
             className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
           >
             <span className="flex items-center gap-2">
@@ -342,7 +587,6 @@ export function DocumentSettingsDrawer({
                 })}
               </div>
 
-              {/* テーマ詳細カスタマイズ */}
               <div className="space-y-2.5 rounded-md border border-slate-800 bg-slate-950/60 p-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold text-slate-300">
@@ -475,10 +719,12 @@ export function DocumentSettingsDrawer({
           )}
         </section>
 
+        {/* 4. ページ構成（表紙・目次・奥付） */}
         <section>
           <button
             type="button"
             onClick={() => toggleSection("structure")}
+            aria-expanded={openSections.structure}
             className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
           >
             <span className="flex items-center gap-2">
@@ -494,15 +740,58 @@ export function DocumentSettingsDrawer({
 
           {openSections.structure && (
             <div className="space-y-3 px-4 pb-4 pt-1">
-              <label className="flex cursor-pointer items-center justify-between">
-                <span>表紙を生成</span>
-                <input
-                  type="checkbox"
-                  checked={frontmatter.cover}
-                  onChange={(e) => updateField("cover", e.target.checked)}
-                  className="h-4 w-4 accent-sky-500"
-                />
-              </label>
+              <div className="space-y-2">
+                <label className="flex cursor-pointer items-center justify-between">
+                  <span>表紙を生成</span>
+                  <input
+                    type="checkbox"
+                    checked={frontmatter.cover}
+                    onChange={(e) => updateField("cover", e.target.checked)}
+                    className="h-4 w-4 accent-sky-500"
+                  />
+                </label>
+
+                {frontmatter.cover && (
+                  <div className="space-y-2 pl-2">
+                    <ImageDropField
+                      label="表紙の背景画像"
+                      value={frontmatter.cover_image}
+                      resolvedSrc={resolvedCoverImageSrc}
+                      assetId="asset:cover_bg_1"
+                      onSave={onSaveAsset}
+                      onRemove={onRemoveAsset}
+                      onChangeValue={(val) => updateField("cover_image", val)}
+                    />
+                    {frontmatter.cover_image && (
+                      <div>
+                        <label className="mb-1 block text-[10px] text-slate-400">
+                          オーバーレイ・文字色モード
+                        </label>
+                        <select
+                          value={frontmatter.cover_overlay}
+                          onChange={(e) =>
+                            updateField(
+                              "cover_overlay",
+                              e.target.value as CoverOverlayMode
+                            )
+                          }
+                          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                        >
+                          <option value="light-fade">
+                            明背景用（白フェード＋濃色文字）
+                          </option>
+                          <option value="dark-fade">
+                            暗背景用（黒フェード＋白文字）
+                          </option>
+                          <option value="none">
+                            オーバーレイなし（白文字）
+                          </option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <div className="space-y-2">
                 <label className="flex cursor-pointer items-center justify-between">
@@ -552,17 +841,31 @@ export function DocumentSettingsDrawer({
                 </label>
 
                 {frontmatter.back_cover && (
-                  <div>
-                    <label className="mb-1 block text-[11px] text-slate-400">
-                      奥付テキスト
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={frontmatter.back_cover_text}
-                      onChange={(e) =>
-                        updateField("back_cover_text", e.target.value)
+                  <div className="space-y-2.5 pl-2">
+                    <div>
+                      <label className="mb-1 block text-[11px] text-slate-400">
+                        奥付テキスト
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={frontmatter.back_cover_text}
+                        onChange={(e) =>
+                          updateField("back_cover_text", e.target.value)
+                        }
+                        className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <ImageDropField
+                      label="裏表紙の背景画像"
+                      value={frontmatter.back_cover_image}
+                      resolvedSrc={resolvedBackCoverImageSrc}
+                      assetId="asset:backcover_bg_1"
+                      onSave={onSaveAsset}
+                      onRemove={onRemoveAsset}
+                      onChangeValue={(val) =>
+                        updateField("back_cover_image", val)
                       }
-                      className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
                     />
                   </div>
                 )}
@@ -571,10 +874,12 @@ export function DocumentSettingsDrawer({
           )}
         </section>
 
+        {/* 5. ヘッダー・フッター・ロゴ */}
         <section>
           <button
             type="button"
             onClick={() => toggleSection("headerFooter")}
+            aria-expanded={openSections.headerFooter}
             className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
           >
             <span className="flex items-center gap-2">
@@ -667,69 +972,15 @@ export function DocumentSettingsDrawer({
               </div>
 
               <div className="space-y-2 pt-1">
-                <label className="block text-[11px] text-slate-400">
-                  ロゴ画像（ブラウザ内保存）
-                </label>
-
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) processLogoFile(file);
-                    e.target.value = "";
-                  }}
+                <ImageDropField
+                  label="ロゴ画像（ブラウザ内保存）"
+                  value={frontmatter.logo}
+                  resolvedSrc={resolvedLogoSrc}
+                  assetId="asset:logo_1"
+                  onSave={onSaveAsset}
+                  onRemove={onRemoveAsset}
+                  onChangeValue={(val) => updateField("logo", val)}
                 />
-
-                {resolvedLogoSrc ? (
-                  <div className="flex items-center justify-between rounded border border-slate-700 bg-slate-950 p-2">
-                    <img
-                      src={resolvedLogoSrc}
-                      alt="Logo Preview"
-                      className="max-h-10 max-w-[160px] object-contain"
-                    />
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (frontmatter.logo.startsWith("asset:")) {
-                          await onRemoveAsset(frontmatter.logo);
-                        }
-                        updateField("logo", "");
-                      }}
-                      title="ロゴを削除"
-                      className="rounded p-1.5 text-red-400 hover:bg-red-950/50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDraggingLogo(true);
-                    }}
-                    onDragLeave={() => setIsDraggingLogo(false)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setIsDraggingLogo(false);
-                      const file = e.dataTransfer.files?.[0];
-                      if (file) processLogoFile(file);
-                    }}
-                    onClick={() => logoInputRef.current?.click()}
-                    className={`flex cursor-pointer flex-col items-center justify-center rounded-md border border-dashed px-3 py-4 text-center transition ${
-                      isDraggingLogo
-                        ? "border-sky-400 bg-sky-500/10"
-                        : "border-slate-700 bg-slate-950/60 hover:border-slate-500"
-                    }`}
-                  >
-                    <ImagePlus className="mb-1 h-5 w-5 text-slate-400" />
-                    <span className="text-[11px] text-slate-300">
-                      ドラッグ＆ドロップ または クリックして選択
-                    </span>
-                  </div>
-                )}
 
                 <div>
                   <label className="mb-1 block text-[11px] text-slate-400">

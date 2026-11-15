@@ -4,6 +4,8 @@ import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkRehype from "remark-rehype";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
@@ -17,14 +19,73 @@ import type {
 } from "@/types/document";
 import { parseMarkdownDocument } from "./frontmatter";
 
-type CalloutType = "note" | "warning" | "tip" | "important";
+type CalloutType =
+  | "note"
+  | "warning"
+  | "tip"
+  | "important"
+  | "caution"
+  | "summary"
+  | "success";
+
+
+const SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  clobberPrefix: "",
+  tagNames: [...(defaultSchema.tagNames || []), "div", "span"],
+  attributes: {
+    ...defaultSchema.attributes,
+    "*": [
+      ...((defaultSchema.attributes?.["*"] as string[]) || []),
+      "className",
+      "id",
+    ],
+    div: [
+      ...((defaultSchema.attributes?.div as string[]) || []),
+      "className",
+      "dataChapterMarker",
+    ],
+    img: ["src", "alt", "title", "width", "height", "loading", "decoding"],
+    th: [...((defaultSchema.attributes?.th as string[]) || []), "align", "style"],
+    td: [...((defaultSchema.attributes?.td as string[]) || []), "align", "style"],
+    code: ["className"],
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    src: ["http", "https", "data", "asset", "rel"],
+  },
+};
 
 const CALLOUT_LABELS: Record<CalloutType, string> = {
   note: "NOTE",
   warning: "WARNING",
   tip: "TIP",
   important: "IMPORTANT",
+  caution: "CAUTION",
+  summary: "SUMMARY",
+  success: "SUCCESS",
 };
+
+const BADGE_SPEC_MAP: Record<string, { className: string; label: string }> = {
+  critical: { className: "doc-badge-critical", label: "Critical" },
+  "緊急": { className: "doc-badge-critical", label: "緊急" },
+  high: { className: "doc-badge-high", label: "High" },
+  "高": { className: "doc-badge-high", label: "高" },
+  medium: { className: "doc-badge-medium", label: "Medium" },
+  "中": { className: "doc-badge-medium", label: "中" },
+  low: { className: "doc-badge-low", label: "Low" },
+  "低": { className: "doc-badge-low", label: "低" },
+  info: { className: "doc-badge-info", label: "Info" },
+  "参考": { className: "doc-badge-info", label: "参考" },
+  scoping: { className: "doc-badge-scoping", label: "Scoping" },
+  active: { className: "doc-badge-active", label: "Active" },
+  draft: { className: "doc-badge-draft", label: "Draft" },
+  final: { className: "doc-badge-final", label: "Final" },
+  closed: { className: "doc-badge-closed", label: "Closed" },
+};
+
+const BADGE_REGEX =
+  /:(Critical|High|Medium|Low|Info|緊急|高|中|低|参考|Scoping|Active|Draft|Final|Closed):/gi;
 
 function escapeHtml(str: string): string {
   return str
@@ -108,7 +169,6 @@ function isChapterMarkerNode(
   if (node.type === "element" && node.tagName === "div") {
     return node.properties?.dataChapterMarker === kind;
   }
-  // remark-rehype は生HTMLを "raw" ノードとして生成するため raw も判定する
   if ((node as { type: string; value?: string }).type === "raw") {
     const val = (node as { value?: string }).value || "";
     return val.includes(`data-chapter-marker="${kind}"`);
@@ -124,10 +184,6 @@ function isWhitespaceText(node: RootContent | undefined): boolean {
   );
 }
 
-/**
- * <!-- chapter --> 直後の H1 要素および概要文（p要素等）を中扉（章扉）セクションへ変換する
- * <!-- /chapter --> があればそこまでを取り込み、省略時は直後の1段落までを取り込む
- */
 function rehypeChapterCovers() {
   return (tree: Root) => {
     const children = tree.children;
@@ -151,7 +207,6 @@ function rehypeChapterCovers() {
         continue;
       }
 
-      // 明示的な <!-- /chapter --> 終了マーカーを探索（最大10ノード先まで）
       let explicitEndIdx = -1;
       const searchLimit = Math.min(children.length, cursor + 12);
       for (let j = cursor + 1; j < searchLimit; j++) {
@@ -176,7 +231,6 @@ function rehypeChapterCovers() {
         }
         replaceEndIdx = explicitEndIdx;
       } else {
-        // 終了マーカー省略時は直後の1段落(p)があれば概要文として取り込む
         let nextIdx = cursor + 1;
         while (
           nextIdx < children.length &&
@@ -233,6 +287,76 @@ function rehypeChapterCovers() {
   };
 }
 
+/**
+ * 特定単語(:Critical:, :High:, :Draft:等)をバッジ要素へ変換する
+ * コードブロック(<pre>)およびインラインコード(<code>)内は対象外
+ */
+function rehypeBadges() {
+  return (tree: Root) => {
+    visit(tree, "element", (node: Element) => {
+      if (
+        node.tagName === "code" ||
+        node.tagName === "pre" ||
+        node.tagName === "script" ||
+        node.tagName === "style"
+      ) {
+        return;
+      }
+
+      if (!node.children || node.children.length === 0) return;
+
+      const nextChildren: Element["children"] = [];
+      let changed = false;
+
+      for (const child of node.children) {
+        if (child.type !== "text" || !child.value.includes(":")) {
+          nextChildren.push(child);
+          continue;
+        }
+
+        const text = child.value;
+        BADGE_REGEX.lastIndex = 0;
+        let lastIndex = 0;
+        let match: RegExpExecArray | null;
+
+        while ((match = BADGE_REGEX.exec(text)) !== null) {
+          const key = match[1].toLowerCase();
+          const spec = BADGE_SPEC_MAP[key];
+          if (!spec) continue;
+
+          if (match.index > lastIndex) {
+            nextChildren.push({
+              type: "text",
+              value: text.slice(lastIndex, match.index),
+            });
+          }
+
+          nextChildren.push({
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-badge", spec.className] },
+            children: [{ type: "text", value: spec.label }],
+          });
+
+          lastIndex = match.index + match[0].length;
+          changed = true;
+        }
+
+        if (lastIndex < text.length) {
+          nextChildren.push({
+            type: "text",
+            value: text.slice(lastIndex),
+          });
+        }
+      }
+
+      if (changed) {
+        node.children = nextChildren;
+      }
+    });
+  };
+}
+
 export function resolveAssetSrc(
   src: string,
   assets: Record<string, string>
@@ -277,9 +401,6 @@ export function resolveAssetSrc(
   return src;
 }
 
-/**
- * 本文中の <img src="..."> (asset:ID およびフォルダ相対パス) を IndexedDB の DataURL へ解決する
- */
 function rehypeResolveAssets(assets: Record<string, string>) {
   return () => (tree: Root) => {
     visit(tree, "element", (node: Element) => {
@@ -397,11 +518,15 @@ function rehypeCallouts() {
       if (firstChild.type !== "text") return;
 
       const match = firstChild.value.match(
-        /^\[!(NOTE|WARNING|TIP|IMPORTANT)\]\s*(?:\r?\n)?/i
+        /^\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION|SUMMARY|ABSTRACT|SUCCESS)\](?:[ \t]+([^\r\n]+))?(?:\r?\n)?/i
       );
       if (!match) return;
 
-      const calloutType = match[1].toLowerCase() as CalloutType;
+      const rawType = match[1].toLowerCase();
+      const calloutType: CalloutType =
+        rawType === "abstract" ? "summary" : (rawType as CalloutType);
+      const customTitle = match[2]?.trim();
+      const titleText = customTitle || CALLOUT_LABELS[calloutType];
       const remainder = firstChild.value.slice(match[0].length);
 
       if (remainder.length > 0) {
@@ -431,7 +556,7 @@ function rehypeCallouts() {
           type: "element",
           tagName: "div",
           properties: { className: ["callout-title"] },
-          children: [{ type: "text", value: CALLOUT_LABELS[calloutType] }],
+          children: [{ type: "text", value: titleText }],
         },
         {
           type: "element",
@@ -474,7 +599,22 @@ function resolveLogoUrl(
   return resolveAssetSrc(logoValue, assets);
 }
 
-function buildCoverHtml(fm: DocumentFrontmatter, logoSrc: string): string {
+function formatCoverTitleHtml(title: string): string {
+  const parts = title.split(/(?:\\n|\r?\n|<br\s*\/?>)/i);
+  return parts.map((part) => escapeHtml(part)).join("<br />");
+}
+
+function formatSingleLineTitle(title: string): string {
+  return title
+    .replace(/([A-Za-z0-9])\s*(?:\\n|\r?\n|<br\s*\/?>)\s*([A-Za-z0-9])/gi, "$1 $2")
+    .replace(/\s*(?:\\n|\r?\n|<br\s*\/?>)\s*/gi, "");
+}
+
+function buildCoverHtml(
+  fm: DocumentFrontmatter,
+  logoSrc: string,
+  coverImageSrc: string
+): string {
   if (!fm.cover) return "";
 
   const showLogoOnCover =
@@ -490,13 +630,50 @@ function buildCoverHtml(fm: DocumentFrontmatter, logoSrc: string): string {
     ? `<p class="cover-subtitle">${escapeHtml(fm.subtitle)}</p>`
     : "";
 
+  const recipientHtml = fm.recipient.trim()
+    ? `<div class="cover-recipient">${escapeHtml(fm.recipient)}</div>`
+    : "";
+
+  const overlayMode = fm.cover_overlay || "light-fade";
+  const overlayGradient =
+    overlayMode === "light-fade"
+      ? "linear-gradient(90deg, rgba(255,255,255,0.94) 0%, rgba(255,255,255,0.84) 46%, rgba(255,255,255,0.22) 76%, rgba(255,255,255,0) 100%)"
+      : overlayMode === "dark-fade"
+        ? "linear-gradient(90deg, rgba(15,23,42,0.88) 0%, rgba(15,23,42,0.72) 48%, rgba(15,23,42,0.20) 78%, rgba(15,23,42,0) 100%)"
+        : "";
+
+  const overlayHtml =
+    coverImageSrc && overlayGradient
+      ? `<div class="cover-bg-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;background:${overlayGradient};z-index:1;pointer-events:none;"></div>`
+      : "";
+
+  const bgHtml = coverImageSrc
+    ? `<img class="cover-bg-img" src="${escapeHtml(coverImageSrc)}" alt="" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:0;" />${overlayHtml}`
+    : "";
+
+  const extraClass = coverImageSrc
+    ? ` has-cover-image cover-overlay-${overlayMode}`
+    : "";
+  const sectionStyle = coverImageSrc
+    ? ` style="position:relative;background-color:transparent;"`
+    : "";
+  const innerStyle = coverImageSrc
+    ? ` style="position:relative;z-index:2;"`
+    : "";
+
   return `
-    <section class="doc-cover">
-      <div class="cover-inner">
-        ${logoHtml}
-        <div class="cover-accent-bar"></div>
-        <h1 class="cover-title">${escapeHtml(fm.title)}</h1>
-        ${subtitleHtml}
+    <section class="doc-cover${extraClass}"${sectionStyle}>
+      ${bgHtml}
+      <div class="cover-inner"${innerStyle}>
+        <div class="cover-top">
+          ${logoHtml}
+        </div>
+        <div class="cover-center">
+          <div class="cover-accent-bar"></div>
+          <h1 class="cover-title">${formatCoverTitleHtml(fm.title)}</h1>
+          ${subtitleHtml}
+          ${recipientHtml}
+        </div>
         <div class="cover-meta">
           <div class="cover-author">${escapeHtml(fm.author)}</div>
           <div class="cover-date">${escapeHtml(fm.date)}</div>
@@ -535,7 +712,10 @@ function buildTocHtml(fm: DocumentFrontmatter, entries: TocEntry[]): string {
   `;
 }
 
-function buildBackCoverHtml(fm: DocumentFrontmatter): string {
+function buildBackCoverHtml(
+  fm: DocumentFrontmatter,
+  backCoverImageSrc: string
+): string {
   if (!fm.back_cover) return "";
 
   const lines = fm.back_cover_text
@@ -543,10 +723,23 @@ function buildBackCoverHtml(fm: DocumentFrontmatter): string {
     .map((line) => escapeHtml(line))
     .join("<br />");
 
+  const bgHtml = backCoverImageSrc
+    ? `<img class="backcover-bg-img" src="${escapeHtml(backCoverImageSrc)}" alt="" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:0;" /><div class="backcover-bg-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;background-color:rgba(255,255,255,0.82);z-index:1;"></div>`
+    : "";
+
+  const extraClass = backCoverImageSrc ? " has-backcover-image" : "";
+  const sectionStyle = backCoverImageSrc
+    ? ` style="position:relative;background-color:transparent;"`
+    : "";
+  const innerStyle = backCoverImageSrc
+    ? ` style="position:relative;z-index:2;"`
+    : "";
+
   return `
-    <section class="doc-backcover">
-      <div class="backcover-inner">
-        <div class="backcover-title">${escapeHtml(fm.title)}</div>
+    <section class="doc-backcover${extraClass}"${sectionStyle}>
+      ${bgHtml}
+      <div class="backcover-inner"${innerStyle}>
+        <div class="backcover-title">${escapeHtml(formatSingleLineTitle(fm.title))}</div>
         <div class="backcover-divider"></div>
         <div class="backcover-text">${lines}</div>
         <div class="backcover-meta">
@@ -572,24 +765,34 @@ export async function compileMarkdownToHtml(
     .use(remarkGfm)
     .use(remarkMath)
     .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
+    .use(rehypeSanitize, SANITIZE_SCHEMA)
     .use(rehypeSlug)
     .use(rehypeSafeHeadingIds)
     .use(createTocCollector(frontmatter.toc_depth, tocEntries))
     .use(rehypeChapterCovers)
     .use(rehypeResolveAssets(assets))
     .use(rehypeCallouts)
+    .use(rehypeBadges)
     .use(rehypeCodeBlockLabels)
     .use(rehypeKatex)
     .use(rehypeHighlight, { ignoreMissing: true })
-    .use(rehypeStringify, { allowDangerousHtml: true });
+    .use(rehypeStringify);
 
   const file = await processor.process(preprocessedBody);
   const bodyHtml = String(file);
 
   const logoSrc = resolveLogoUrl(frontmatter.logo, assets);
-  const coverHtml = buildCoverHtml(frontmatter, logoSrc);
+  const coverImageSrc = frontmatter.cover_image
+    ? resolveAssetSrc(frontmatter.cover_image, assets)
+    : "";
+  const backCoverImageSrc = frontmatter.back_cover_image
+    ? resolveAssetSrc(frontmatter.back_cover_image, assets)
+    : "";
+
+  const coverHtml = buildCoverHtml(frontmatter, logoSrc, coverImageSrc);
   const tocHtml = buildTocHtml(frontmatter, tocEntries);
-  const backCoverHtml = buildBackCoverHtml(frontmatter);
+  const backCoverHtml = buildBackCoverHtml(frontmatter, backCoverImageSrc);
 
   const fullHtml = `
     <article class="doc-root theme-${frontmatter.theme}">

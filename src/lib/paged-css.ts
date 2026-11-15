@@ -37,6 +37,21 @@ function escapeCssString(value: string): string {
     .replaceAll("\n", " ");
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function normalizeSingleLineTitle(title: string): string {
+  return title
+    .replace(/([A-Za-z0-9])\s*(?:\\n|\r?\n|<br\s*\/?>)\s*([A-Za-z0-9])/gi, "$1 $2")
+    .replace(/\s*(?:\\n|\r?\n|<br\s*\/?>)\s*/gi, "");
+}
+
 function formatMarginContent(
   template: string,
   fm: DocumentFrontmatter
@@ -46,13 +61,26 @@ function formatMarginContent(
   }
 
   const resolved = template
-    .replaceAll("{title}", fm.title)
+    .replaceAll("{title}", normalizeSingleLineTitle(fm.title))
     .replaceAll("{author}", fm.author)
+    .replaceAll("{recipient}", fm.recipient)
     .replaceAll("{date}", fm.date)
     .replaceAll("{page}", "__MD_PAGE__")
     .replaceAll("{pages}", "__MD_PAGES__");
 
   return `"${escapeCssString(resolved)}"`;
+}
+
+function buildWatermarkSvgDataUri(label: string): string {
+  const text = label.trim() || "CONFIDENTIAL";
+  const fontSize = Math.max(
+    26,
+    Math.min(64, Math.floor(420 / Math.max(1, text.length)))
+  );
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><g transform="translate(300,300) rotate(-35)"><text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="${fontSize}" font-weight="700" letter-spacing="4" fill="#64748b" fill-opacity="0.14">${escapeXml(text)}</text></g></svg>`;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
 function getThemeVariables(
@@ -145,26 +173,55 @@ function getThemeVariables(
   return `${baseVars}\n${overrides.join("\n")}`;
 }
 
+export interface PagedMediaImageAssets {
+  logoUrl?: string;
+  coverImageUrl?: string;
+  backCoverImageUrl?: string;
+}
+
 export function buildPagedMediaCss(
   fm: DocumentFrontmatter,
-  resolvedLogoDataUrl?: string
+  imageAssets: PagedMediaImageAssets = {}
 ): string {
   const { cssSize, pageHeight } = getPageDimensions(
     fm.page_size,
     fm.orientation
   );
-  const fullPageHeight = `calc(${pageHeight} - 1mm)`;
+  const fullPageHeight = `calc(${pageHeight} - 0.3mm)`;
   const maxImageHeight = `calc(${pageHeight} - 52mm)`;
 
+  const isConfidential =
+    fm.confidential_mode === "standard" || fm.confidential_mode === "strict";
+  const label = fm.confidential_label.trim() || "CONFIDENTIAL";
+
+  const rawHeaderRight = fm.header_right.trim();
+  const effectiveHeaderRight = isConfidential
+    ? rawHeaderRight
+      ? `${label} | ${rawHeaderRight}`
+      : label
+    : fm.header_right;
+
+  const rawFooterLeft = fm.footer_left.trim();
+  const effectiveFooterLeft = isConfidential
+    ? rawFooterLeft
+      ? `${rawFooterLeft} | ${label}`
+      : label
+    : fm.footer_left;
+
   const headerLeft = formatMarginContent(fm.header_left, fm);
-  const headerRight = formatMarginContent(fm.header_right, fm);
-  const footerLeft = formatMarginContent(fm.footer_left, fm);
+  const headerRight = formatMarginContent(effectiveHeaderRight, fm);
+  const footerLeft = formatMarginContent(effectiveFooterLeft, fm);
   const footerRight = formatMarginContent(fm.footer_right, fm);
 
-  const logoSrc =
-    fm.logo.startsWith("asset:") && resolvedLogoDataUrl
-      ? resolvedLogoDataUrl
-      : fm.logo;
+  const logoSrc = imageAssets.logoUrl || (fm.logo.startsWith("asset:") ? "" : fm.logo);
+  const hasCoverBg = Boolean(
+    imageAssets.coverImageUrl ||
+      (fm.cover_image && !fm.cover_image.startsWith("asset:"))
+  );
+  const hasBackCoverBg = Boolean(
+    imageAssets.backCoverImageUrl ||
+      (fm.back_cover_image && !fm.back_cover_image.startsWith("asset:"))
+  );
 
   const showHeaderLogo =
     Boolean(logoSrc) &&
@@ -194,6 +251,139 @@ export function buildPagedMediaCss(
     `
     : `@top-center { content: none; }`;
 
+  const strictWatermarkRule =
+    fm.confidential_mode === "strict"
+      ? `
+        background-image: url("${buildWatermarkSvgDataUri(label)}");
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: contain;
+      `
+      : "";
+
+  const coverImageCss = `
+      .doc-cover.has-cover-image {
+        position: relative;
+        background-color: transparent !important;
+        border-left: none !important;
+        padding: 24mm 22mm;
+      }
+      .doc-cover .cover-bg-img {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        z-index: 0;
+      }
+      .doc-cover.has-cover-image .cover-inner {
+        position: relative;
+        z-index: 2;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 0;
+      }
+      .doc-cover.has-cover-image .cover-top {
+        min-height: 14mm;
+        display: flex;
+        align-items: flex-start;
+      }
+      .doc-cover.has-cover-image .cover-center {
+        display: flex;
+        flex-direction: column;
+        gap: 5mm;
+        max-width: 78%;
+        margin: auto 0;
+        padding-top: 8mm;
+      }
+      .doc-cover.has-cover-image .cover-accent-bar {
+        display: none;
+      }
+      .doc-cover.has-cover-image .cover-recipient {
+        margin-top: 6mm;
+      }
+      .doc-cover.has-cover-image .cover-meta {
+        margin-top: 0;
+        padding-top: 5mm;
+        max-width: 65%;
+      }
+      .doc-cover.has-cover-image.cover-overlay-light-fade .cover-title {
+        color: var(--doc-primary);
+      }
+      .doc-cover.has-cover-image.cover-overlay-light-fade .cover-subtitle {
+        color: #334155;
+        opacity: 1;
+      }
+      .doc-cover.has-cover-image.cover-overlay-light-fade .cover-recipient {
+        color: #0f172a;
+        opacity: 1;
+      }
+      .doc-cover.has-cover-image.cover-overlay-light-fade .cover-author {
+        color: #1e293b;
+        opacity: 1;
+      }
+      .doc-cover.has-cover-image.cover-overlay-light-fade .cover-date {
+        color: #475569;
+        opacity: 1;
+      }
+      .doc-cover.has-cover-image.cover-overlay-light-fade .cover-meta {
+        border-top: 0.5pt solid rgba(15, 23, 42, 0.16);
+      }
+      .doc-cover.has-cover-image.cover-overlay-dark-fade .cover-title,
+      .doc-cover.has-cover-image.cover-overlay-none .cover-title {
+        color: #ffffff;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+      }
+      .doc-cover.has-cover-image.cover-overlay-dark-fade .cover-subtitle,
+      .doc-cover.has-cover-image.cover-overlay-dark-fade .cover-recipient,
+      .doc-cover.has-cover-image.cover-overlay-dark-fade .cover-author,
+      .doc-cover.has-cover-image.cover-overlay-dark-fade .cover-date,
+      .doc-cover.has-cover-image.cover-overlay-none .cover-subtitle,
+      .doc-cover.has-cover-image.cover-overlay-none .cover-recipient,
+      .doc-cover.has-cover-image.cover-overlay-none .cover-author,
+      .doc-cover.has-cover-image.cover-overlay-none .cover-date {
+        color: #f8fafc;
+        opacity: 0.95;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.30);
+      }
+      .doc-cover.has-cover-image.cover-overlay-dark-fade .cover-meta,
+      .doc-cover.has-cover-image.cover-overlay-none .cover-meta {
+        border-top: 0.5pt solid rgba(255, 255, 255, 0.26);
+      }
+    `;
+
+  const backCoverImageCss = `
+      .doc-backcover.has-backcover-image {
+        position: relative;
+        background-color: transparent !important;
+      }
+      .doc-backcover .backcover-bg-img {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        z-index: 0;
+      }
+      .doc-backcover .backcover-bg-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(255, 255, 255, 0.82);
+        z-index: 1;
+      }
+      .doc-backcover.has-backcover-image .backcover-inner {
+        position: relative;
+        z-index: 2;
+      }
+    `;
+
   return `
     :root {
       ${getThemeVariables(
@@ -207,6 +397,7 @@ export function buildPagedMediaCss(
     @page {
       size: ${cssSize};
       margin: 22mm 18mm 22mm 18mm;
+      ${strictWatermarkRule}
 
       @top-left {
         content: ${headerLeft};
@@ -256,6 +447,8 @@ export function buildPagedMediaCss(
 
     @page cover {
       margin: 0;
+      background-color: ${hasCoverBg ? "transparent" : "var(--doc-cover-bg)"};
+      background-image: none !important;
       @top-left { content: none; }
       @top-center { content: none; }
       @top-right { content: none; }
@@ -265,6 +458,7 @@ export function buildPagedMediaCss(
     }
 
     @page toc {
+      ${strictWatermarkRule}
       @top-left { content: none; }
       @top-center { content: none; }
       @top-right { content: none; }
@@ -280,6 +474,8 @@ export function buildPagedMediaCss(
 
     @page chapter {
       margin: 0;
+      background-color: var(--doc-bg-subtle);
+      background-image: none !important;
       @top-left { content: none; }
       @top-center { content: none; }
       @top-right { content: none; }
@@ -290,6 +486,8 @@ export function buildPagedMediaCss(
 
     @page backcover {
       margin: 0;
+      background-color: ${hasBackCoverBg ? "transparent" : "var(--doc-bg-subtle)"};
+      background-image: none !important;
       @top-left { content: none; }
       @top-center { content: none; }
       @top-right { content: none; }
@@ -332,10 +530,18 @@ export function buildPagedMediaCss(
       border-left: 6mm solid var(--doc-primary);
     }
 
+    ${coverImageCss}
+
     .cover-inner {
       display: flex;
       flex-direction: column;
       gap: 10mm;
+    }
+
+    .cover-center {
+      display: flex;
+      flex-direction: column;
+      gap: 6mm;
     }
 
     .cover-logo img {
@@ -357,6 +563,9 @@ export function buildPagedMediaCss(
       line-height: 1.3;
       margin: 0;
       color: var(--doc-cover-text);
+      overflow-wrap: break-word;
+      line-break: strict;
+      text-wrap: balance;
     }
 
     .cover-subtitle {
@@ -366,8 +575,17 @@ export function buildPagedMediaCss(
       opacity: 0.86;
     }
 
+    .cover-recipient {
+      margin-top: 10mm;
+      font-size: 13pt;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--doc-cover-text);
+      opacity: 0.95;
+    }
+
     .cover-meta {
-      margin-top: 24mm;
+      margin-top: 18mm;
       padding-top: 6mm;
       border-top: 0.5pt solid rgba(255, 255, 255, 0.28);
       font-size: 10.5pt;
@@ -386,7 +604,6 @@ export function buildPagedMediaCss(
       opacity: 0.8;
     }
 
-    /* 中扉 (Chapter Cover) */
     .doc-chapter-cover {
       page: chapter;
       break-before: page;
@@ -441,7 +658,6 @@ export function buildPagedMediaCss(
       margin-bottom: 0;
     }
 
-    /* 目次 (Table of Contents) */
     .doc-toc {
       page: toc;
       break-after: page;
@@ -533,6 +749,8 @@ export function buildPagedMediaCss(
       padding: 26mm 24mm;
     }
 
+    ${backCoverImageCss}
+
     .backcover-inner {
       border-top: 1pt solid var(--doc-border);
       padding-top: 6mm;
@@ -565,6 +783,70 @@ export function buildPagedMediaCss(
       justify-content: space-between;
       font-size: 8.5pt;
       color: var(--doc-muted);
+    }
+
+    /* 特定単語バッジ */
+    .doc-badge {
+      display: inline-block;
+      padding: 0.4mm 2mm;
+      margin: 0 0.8mm;
+      border-radius: 1mm;
+      font-family: var(--doc-font-heading);
+      font-size: 7.8pt;
+      font-weight: 700;
+      line-height: 1.3;
+      vertical-align: baseline;
+      letter-spacing: 0.02em;
+    }
+
+    .doc-badge-critical {
+      background-color: #9f1239;
+      color: #ffffff;
+    }
+
+    .doc-badge-high {
+      background-color: #ea580c;
+      color: #ffffff;
+    }
+
+    .doc-badge-medium {
+      background-color: #d97706;
+      color: #ffffff;
+    }
+
+    .doc-badge-low {
+      background-color: #16a34a;
+      color: #ffffff;
+    }
+
+    .doc-badge-info {
+      background-color: #2563eb;
+      color: #ffffff;
+    }
+
+    .doc-badge-scoping {
+      background-color: #7c3aed;
+      color: #ffffff;
+    }
+
+    .doc-badge-active {
+      background-color: #0284c7;
+      color: #ffffff;
+    }
+
+    .doc-badge-draft {
+      background-color: #64748b;
+      color: #ffffff;
+    }
+
+    .doc-badge-final {
+      background-color: #059669;
+      color: #ffffff;
+    }
+
+    .doc-badge-closed {
+      background-color: #334155;
+      color: #ffffff;
     }
 
     .doc-body h1,
@@ -795,6 +1077,33 @@ export function buildPagedMediaCss(
 
     .callout-important .callout-title {
       color: #6d28d9;
+    }
+
+    .callout-caution {
+      border-left-color: #dc2626;
+      background-color: #fef2f2;
+    }
+
+    .callout-caution .callout-title {
+      color: #991b1b;
+    }
+
+    .callout-summary {
+      border-left-color: #0891b2;
+      background-color: #ecfeff;
+    }
+
+    .callout-summary .callout-title {
+      color: #155e75;
+    }
+
+    .callout-success {
+      border-left-color: #059669;
+      background-color: #ecfdf5;
+    }
+
+    .callout-success .callout-title {
+      color: #065f46;
     }
 
     .doc-body code {

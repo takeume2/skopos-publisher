@@ -4,16 +4,22 @@ export type DocumentTheme = "business" | "technical" | "minimal";
 export type FontFamilyOption = "theme" | "sans" | "serif";
 export type LogoPosition = "cover-only" | "header-only" | "cover-and-header";
 export type TocDepth = 1 | 2 | 3;
+export type ConfidentialMode = "none" | "standard" | "strict";
+export type CoverOverlayMode = "light-fade" | "dark-fade" | "none";
 
 export interface DocumentFrontmatter {
   title: string;
   subtitle: string;
   author: string;
+  recipient: string;
   date: string;
   page_size: PageSize;
   orientation: PageOrientation;
   cover: boolean;
+  cover_image: string;
+  cover_overlay: CoverOverlayMode;
   back_cover: boolean;
+  back_cover_image: string;
   back_cover_text: string;
   toc: boolean;
   toc_depth: TocDepth;
@@ -23,6 +29,8 @@ export interface DocumentFrontmatter {
   font_family: FontFamilyOption;
   font_size: number;
   line_height: number;
+  confidential_mode: ConfidentialMode;
+  confidential_label: string;
   logo: string;
   logo_position: LogoPosition;
   header_left: string;
@@ -35,11 +43,15 @@ export const DEFAULT_FRONTMATTER: DocumentFrontmatter = {
   title: "文書タイトル",
   subtitle: "サブタイトル",
   author: "作成者・組織名",
+  recipient: "",
   date: "2026-11-14",
   page_size: "A4",
   orientation: "portrait",
   cover: true,
+  cover_image: "",
+  cover_overlay: "light-fade",
   back_cover: true,
+  back_cover_image: "",
   back_cover_text: "発行元・連絡先・コピーライト情報",
   toc: true,
   toc_depth: 3,
@@ -49,6 +61,8 @@ export const DEFAULT_FRONTMATTER: DocumentFrontmatter = {
   font_family: "theme",
   font_size: 10,
   line_height: 1.7,
+  confidential_mode: "none",
+  confidential_label: "CONFIDENTIAL",
   logo: "",
   logo_position: "cover-and-header",
   header_left: "{title}",

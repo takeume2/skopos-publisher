@@ -11,6 +11,7 @@ import {
   Maximize2,
   Minimize2,
   RefreshCw,
+  ShieldAlert,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -35,10 +36,19 @@ function escapeCssContent(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
-/**
- * 本文1ページ目を「1」としてページ番号を割り当て、
- * 目次のページ番号およびヘッダー/フッターの __MD_PAGE__ / __MD_PAGES__ を確定させる
- */
+async function yieldToMain(): Promise<void> {
+  const globalScheduler = (
+    globalThis as typeof globalThis & {
+      scheduler?: { yield?: () => Promise<void> };
+    }
+  ).scheduler;
+  if (typeof globalScheduler?.yield === "function") {
+    await globalScheduler.yield();
+    return;
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 function applyBodyPageNumbers(rootContainer: HTMLElement) {
   const pages = Array.from(
     rootContainer.querySelectorAll<HTMLElement>(".pagedjs_page")
@@ -61,7 +71,6 @@ function applyBodyPageNumbers(rootContainer: HTMLElement) {
 
   const totalBodyPages = bodyPageCounter;
 
-  // 1. 目次(.toc-page-num)へ本文ページ番号を注入
   const tocNumNodes = rootContainer.querySelectorAll<HTMLElement>(
     ".toc-page-num[data-target-id]"
   );
@@ -80,7 +89,6 @@ function applyBodyPageNumbers(rootContainer: HTMLElement) {
     }
   });
 
-  // 2. ヘッダー/フッター内の __MD_PAGE__ / __MD_PAGES__ をページ単位CSSで置換
   const overrideRules: string[] = [];
 
   bodyPageMap.forEach((pageNum, pageEl) => {
@@ -162,6 +170,16 @@ export function PagedPreviewPane({
   const [isRendering, setIsRendering] = useState<boolean>(false);
   const [renderError, setRenderError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("debug") === "true") {
+      document.body.classList.add("debug-layout");
+    }
+    return () => {
+      document.body.classList.remove("debug-layout");
+    };
+  }, []);
+
   const cleanupPagedStyles = useCallback(() => {
     const insertedStyles = document.querySelectorAll(
       "style[data-pagedjs-inserted-styles]"
@@ -187,26 +205,33 @@ export function PagedPreviewPane({
       setRenderError(null);
 
       try {
-        const logoKey = frontmatter.logo;
-        const resolvedLogo = logoKey ? resolveAssetSrc(logoKey, assets) : "";
-        const resolvedLogoDataUrl =
-          resolvedLogo && resolvedLogo !== logoKey ? resolvedLogo : undefined;
-
-        const compiled = await compileMarkdownToHtml(sourceMarkdown, assets);
-
-        if (currentRenderId !== renderIdRef.current) return;
-
-        const cssText = buildPagedMediaCss(
-          compiled.frontmatter,
-          resolvedLogoDataUrl
-        );
-
-        const { Previewer } = await import("pagedjs");
-
-        // フォント・画像のロード完了を待機してから組版（プレビューと印刷の差異を防止）
         if (document.fonts?.ready) {
           await document.fonts.ready;
         }
+
+        if (currentRenderId !== renderIdRef.current) return;
+
+        const compiled = await compileMarkdownToHtml(sourceMarkdown, assets);
+        await yieldToMain();
+
+        if (currentRenderId !== renderIdRef.current) return;
+
+        const fm = compiled.frontmatter;
+        const resolvedLogo = fm.logo ? resolveAssetSrc(fm.logo, assets) : "";
+        const resolvedCover = fm.cover_image
+          ? resolveAssetSrc(fm.cover_image, assets)
+          : "";
+        const resolvedBackCover = fm.back_cover_image
+          ? resolveAssetSrc(fm.back_cover_image, assets)
+          : "";
+
+        const cssText = buildPagedMediaCss(fm, {
+          logoUrl: resolvedLogo || undefined,
+          coverImageUrl: resolvedCover || undefined,
+          backCoverImageUrl: resolvedBackCover || undefined,
+        });
+
+        const { Previewer } = await import("pagedjs");
 
         if (currentRenderId !== renderIdRef.current) return;
 
@@ -224,7 +249,12 @@ export function PagedPreviewPane({
           return;
         }
 
-        // 本文起点のページ番号を確定・目次とフッターへ反映
+        await yieldToMain();
+        if (currentRenderId !== renderIdRef.current) {
+          cleanupPagedStyles();
+          return;
+        }
+
         applyBodyPageNumbers(measureHost);
 
         while (measureHost.firstChild) {
@@ -253,7 +283,7 @@ export function PagedPreviewPane({
         }
       }
     },
-    [assets, cleanupPagedStyles, frontmatter.logo]
+    [assets, cleanupPagedStyles]
   );
 
   useEffect(() => {
@@ -280,7 +310,17 @@ export function PagedPreviewPane({
         debounceTimerRef.current = null;
       }
     };
-  }, [markdown, assets, autoUpdate, renderDocument]);
+  }, [
+    markdown,
+    assets,
+    autoUpdate,
+    frontmatter.confidential_mode,
+    frontmatter.confidential_label,
+    frontmatter.recipient,
+    frontmatter.cover_image,
+    frontmatter.back_cover_image,
+    renderDocument,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -293,19 +333,6 @@ export function PagedPreviewPane({
       cleanupPagedStyles();
     };
   }, [cleanupPagedStyles]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("debug") === "true") {
-      document.body.classList.add("debug-layout");
-    } else {
-      document.body.classList.remove("debug-layout");
-    }
-    return () => {
-      document.body.classList.remove("debug-layout");
-    };
-  }, []);
 
   const handleManualRender = useCallback(() => {
     if (debounceTimerRef.current) {
@@ -413,6 +440,7 @@ export function PagedPreviewPane({
             type="button"
             onClick={() => setZoom((z) => Math.max(50, z - 10))}
             title="縮小"
+            aria-label="プレビューを縮小"
             className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
           >
             <ZoomOut className="h-3.5 w-3.5" />
@@ -420,6 +448,7 @@ export function PagedPreviewPane({
 
           <input
             type="range"
+            aria-label="プレビュー倍率"
             min={50}
             max={200}
             step={5}
@@ -441,6 +470,7 @@ export function PagedPreviewPane({
             type="button"
             onClick={() => setZoom((z) => Math.min(200, z + 10))}
             title="拡大"
+            aria-label="プレビューを拡大"
             className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
           >
             <ZoomIn className="h-3.5 w-3.5" />
@@ -506,6 +536,7 @@ export function PagedPreviewPane({
             <button
               type="button"
               disabled={currentPage <= 1}
+              aria-label="前のページへ"
               onClick={() => scrollToPage(currentPage - 1)}
               className="rounded p-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
             >
@@ -514,6 +545,7 @@ export function PagedPreviewPane({
             <input
               type="text"
               inputMode="numeric"
+              aria-label="表示ページ番号"
               value={pageInput}
               onChange={(e) => setPageInput(e.target.value)}
               onBlur={() => {
@@ -532,6 +564,7 @@ export function PagedPreviewPane({
             <button
               type="button"
               disabled={currentPage >= totalPages}
+              aria-label="次のページへ"
               onClick={() => scrollToPage(currentPage + 1)}
               className="rounded p-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
             >
@@ -541,6 +574,15 @@ export function PagedPreviewPane({
         </div>
 
         <div className="flex items-center gap-2">
+          {frontmatter.confidential_mode === "strict" && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/50 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+              <ShieldAlert className="h-3 w-3" />
+              <span>
+                透かし: {frontmatter.confidential_label || "CONFIDENTIAL"}
+              </span>
+            </span>
+          )}
+
           <button
             type="button"
             onClick={() => onToggleMarginGuides(!showMarginGuides)}
@@ -597,7 +639,7 @@ export function PagedPreviewPane({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="print-scroll-container relative min-h-0 flex-1 overflow-auto bg-zinc-800"
+        className="print-scroll-container relative min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable] bg-zinc-800"
       >
         {isRendering && (
           <div className="no-print pointer-events-none sticky top-3 z-10 flex justify-end px-4">

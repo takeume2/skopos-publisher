@@ -26,33 +26,30 @@
 }
 
 .paged-preview-canvas .pagedjs_page {
+  box-sizing: border-box;
+  overflow: hidden;
   background-color: #ffffff;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38), 0 2px 6px rgba(0, 0, 0, 0.22);
   position: relative;
   flex-shrink: 0;
-  box-sizing: border-box;
-  overflow: hidden;
 }
 
-/* =========================================================
- * レイアウト境界線・デバッグ可視化（余白ガイド ON または ?debug=true 時）
- * ========================================================= */
+/* =========================================
+   レイアウトデバッグ境界線 (余白ガイド / ?debug=true)
+========================================= */
 .paged-preview-canvas.show-margin-guides .pagedjs_page,
 body.debug-layout .paged-preview-canvas .pagedjs_page {
-  outline: 2px solid #ef4444 !important; /* 赤実線：用紙外枠 */
-  outline-offset: -2px;
+  outline: 1px solid rgba(239, 68, 68, 0.8);
 }
 
 .paged-preview-canvas.show-margin-guides .pagedjs_pagebox,
 body.debug-layout .paged-preview-canvas .pagedjs_pagebox {
-  outline: 1.5px dashed #3b82f6 !important; /* 青破線：余白内側の印刷エリア */
-  outline-offset: -1.5px;
+  outline: 1px dashed rgba(59, 130, 246, 0.75);
 }
 
 .paged-preview-canvas.show-margin-guides .pagedjs_area,
 body.debug-layout .paged-preview-canvas .pagedjs_area {
-  outline: 1px dotted #10b981 !important; /* 緑点線：本文コンテンツ領域 */
-  background-color: rgba(16, 185, 129, 0.03) !important;
+  outline: 1px dotted rgba(34, 197, 94, 0.85);
 }
 
 .paged-preview-canvas.show-margin-guides .pagedjs_margin-top,
@@ -63,31 +60,34 @@ body.debug-layout .paged-preview-canvas .pagedjs_margin-top,
 body.debug-layout .paged-preview-canvas .pagedjs_margin-bottom,
 body.debug-layout .paged-preview-canvas .pagedjs_margin-left,
 body.debug-layout .paged-preview-canvas .pagedjs_margin-right {
-  outline: 1px dashed rgba(245, 158, 11, 0.75) !important; /* 橙破線：ヘッダー/フッター領域 */
-  background-color: rgba(245, 158, 11, 0.05) !important;
+  outline: 1px dashed rgba(249, 115, 22, 0.7);
 }
 
-.paged-preview-canvas.show-margin-guides .pagedjs_page:last-child::before,
-body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::before {
+.paged-preview-canvas.show-margin-guides .pagedjs_page:last-child::after,
+body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::after {
   content: "LAST PAGE END";
   position: absolute;
-  bottom: 4px;
-  right: 6px;
-  z-index: 9999;
-  padding: 2px 6px;
-  font-family: monospace;
-  font-size: 10px;
+  right: 8px;
+  bottom: 8px;
+  background-color: rgba(239, 68, 68, 0.9);
   color: #ffffff;
-  background-color: #2563eb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
   border-radius: 3px;
   pointer-events: none;
+  z-index: 50;
 }
 
+/* =========================================
+   印刷最適化 (@media print)
+========================================= */
 @media print {
   html,
   body {
     height: auto !important;
-    min-height: 0 !important;
     overflow: visible !important;
     background: #ffffff !important;
     margin: 0 !important;
@@ -106,7 +106,6 @@ body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::before {
     position: static !important;
     width: auto !important;
     height: auto !important;
-    min-height: 0 !important;
     overflow: visible !important;
     transform: none !important;
     zoom: 1 !important;
@@ -127,18 +126,15 @@ body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::before {
   .paged-preview-canvas .pagedjs_page {
     box-shadow: none !important;
     margin: 0 !important;
-    overflow: hidden !important;
     break-after: page;
     page-break-after: always;
   }
 
-  /* 【修正】最終ページの直後には強制改ページを入れない（空白1ページ防止） */
   .paged-preview-canvas .pagedjs_page:last-child {
     break-after: auto !important;
     page-break-after: auto !important;
   }
 
-  /* 印刷時はガイド線を完全に消去 */
   .paged-preview-canvas.show-margin-guides .pagedjs_page,
   .paged-preview-canvas.show-margin-guides .pagedjs_pagebox,
   .paged-preview-canvas.show-margin-guides .pagedjs_area,
@@ -154,11 +150,66 @@ body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::before {
   body.debug-layout .paged-preview-canvas .pagedjs_margin-left,
   body.debug-layout .paged-preview-canvas .pagedjs_margin-right {
     outline: none !important;
-    background-color: transparent !important;
   }
 
-  .paged-preview-canvas.show-margin-guides .pagedjs_page:last-child::before,
-  body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::before {
+  .paged-preview-canvas.show-margin-guides .pagedjs_page:last-child::after,
+  body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::after {
+    content: none !important;
     display: none !important;
+  }
+}
+
+/* =========================================
+   Modern Web Guidance: スクロールバー・<dialog>・モーション配慮
+   ========================================= */
+:root {
+  color-scheme: dark;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+  scrollbar-width: thin;
+}
+
+.doc-root {
+  color-scheme: light;
+}
+
+dialog.mdpub-dialog {
+  margin: auto;
+  border: 1px solid rgb(51 65 85);
+  border-radius: 0.75rem;
+  background-color: rgb(15 23 42);
+  color: rgb(241 245 249);
+  padding: 0;
+  max-width: min(92vw, 420px);
+  width: 100%;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    display 180ms allow-discrete,
+    overlay 180ms allow-discrete;
+}
+
+dialog.mdpub-dialog[open] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+@starting-style {
+  dialog.mdpub-dialog[open] {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+dialog.mdpub-dialog::backdrop {
+  background-color: rgba(2, 6, 23, 0.65);
+  backdrop-filter: blur(4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.mdpub-dialog {
+    transition: none;
   }
 }

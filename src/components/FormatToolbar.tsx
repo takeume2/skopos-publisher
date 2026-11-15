@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bold,
   BookMarked,
+  ClipboardList,
   Code2,
   FilePlus2,
   Heading1,
@@ -14,6 +15,7 @@ import {
   Info,
   Italic,
   List,
+  OctagonAlert,
   Sigma,
   Table,
 } from "lucide-react";
@@ -97,6 +99,26 @@ export function FormatToolbar({
         label: "WARNING",
         before: "> [!WARNING]\n> ",
         placeholder: "注意事項を記述します。",
+        block: true,
+      },
+    },
+    {
+      title: "コールアウト [!CAUTION]",
+      icon: <OctagonAlert className="h-3.5 w-3.5" />,
+      snippet: {
+        label: "CAUTION",
+        before: "> [!CAUTION] 重大な注意\n> ",
+        placeholder: "重大なリスクや禁止事項を記述します。",
+        block: true,
+      },
+    },
+    {
+      title: "コールアウト [!SUMMARY]",
+      icon: <ClipboardList className="h-3.5 w-3.5" />,
+      snippet: {
+        label: "SUMMARY",
+        before: "> [!SUMMARY] 要約\n> ",
+        placeholder: "セクションの要点を記述します。",
         block: true,
       },
     },

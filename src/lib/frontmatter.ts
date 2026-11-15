@@ -1,5 +1,7 @@
 import yaml from "js-yaml";
 import {
+  ConfidentialMode,
+  CoverOverlayMode,
   DEFAULT_FRONTMATTER,
   DocumentFrontmatter,
   DocumentTheme,
@@ -18,6 +20,16 @@ const VALID_PAGE_SIZES: PageSize[] = ["A4", "A5", "B5", "Letter"];
 const VALID_ORIENTATIONS: PageOrientation[] = ["portrait", "landscape"];
 const VALID_THEMES: DocumentTheme[] = ["business", "technical", "minimal"];
 const VALID_FONT_FAMILIES: FontFamilyOption[] = ["theme", "sans", "serif"];
+const VALID_COVER_OVERLAY_MODES: CoverOverlayMode[] = [
+  "light-fade",
+  "dark-fade",
+  "none",
+];
+const VALID_CONFIDENTIAL_MODES: ConfidentialMode[] = [
+  "none",
+  "standard",
+  "strict",
+];
 const VALID_LOGO_POSITIONS: LogoPosition[] = [
   "cover-only",
   "header-only",
@@ -80,6 +92,18 @@ function normalizeFrontmatter(raw: Record<string, unknown>): DocumentFrontmatter
     ? (raw.font_family as FontFamilyOption)
     : DEFAULT_FRONTMATTER.font_family;
 
+  const coverOverlay = VALID_COVER_OVERLAY_MODES.includes(
+    raw.cover_overlay as CoverOverlayMode
+  )
+    ? (raw.cover_overlay as CoverOverlayMode)
+    : DEFAULT_FRONTMATTER.cover_overlay;
+
+  const confidentialMode = VALID_CONFIDENTIAL_MODES.includes(
+    raw.confidential_mode as ConfidentialMode
+  )
+    ? (raw.confidential_mode as ConfidentialMode)
+    : DEFAULT_FRONTMATTER.confidential_mode;
+
   const logoPosition = VALID_LOGO_POSITIONS.includes(
     raw.logo_position as LogoPosition
   )
@@ -96,11 +120,18 @@ function normalizeFrontmatter(raw: Record<string, unknown>): DocumentFrontmatter
     title: asString(raw.title, DEFAULT_FRONTMATTER.title),
     subtitle: asString(raw.subtitle, DEFAULT_FRONTMATTER.subtitle),
     author: asString(raw.author, DEFAULT_FRONTMATTER.author),
+    recipient: asString(raw.recipient, DEFAULT_FRONTMATTER.recipient),
     date: asString(raw.date, DEFAULT_FRONTMATTER.date),
     page_size: pageSize,
     orientation,
     cover: asBoolean(raw.cover, DEFAULT_FRONTMATTER.cover),
+    cover_image: asString(raw.cover_image, DEFAULT_FRONTMATTER.cover_image),
+    cover_overlay: coverOverlay,
     back_cover: asBoolean(raw.back_cover, DEFAULT_FRONTMATTER.back_cover),
+    back_cover_image: asString(
+      raw.back_cover_image,
+      DEFAULT_FRONTMATTER.back_cover_image
+    ),
     back_cover_text: asString(
       raw.back_cover_text,
       DEFAULT_FRONTMATTER.back_cover_text
@@ -128,6 +159,11 @@ function normalizeFrontmatter(raw: Record<string, unknown>): DocumentFrontmatter
       1.4,
       2.0,
       DEFAULT_FRONTMATTER.line_height
+    ),
+    confidential_mode: confidentialMode,
+    confidential_label: asString(
+      raw.confidential_label,
+      DEFAULT_FRONTMATTER.confidential_label
     ),
     logo: asString(raw.logo, DEFAULT_FRONTMATTER.logo),
     logo_position: logoPosition,
@@ -179,11 +215,15 @@ export function serializeFrontmatter(frontmatter: DocumentFrontmatter): string {
     title: frontmatter.title,
     subtitle: frontmatter.subtitle,
     author: frontmatter.author,
+    recipient: frontmatter.recipient,
     date: frontmatter.date,
     page_size: frontmatter.page_size,
     orientation: frontmatter.orientation,
     cover: frontmatter.cover,
+    cover_image: frontmatter.cover_image,
+    cover_overlay: frontmatter.cover_overlay,
     back_cover: frontmatter.back_cover,
+    back_cover_image: frontmatter.back_cover_image,
     back_cover_text: frontmatter.back_cover_text,
     toc: frontmatter.toc,
     toc_depth: frontmatter.toc_depth,
@@ -193,6 +233,8 @@ export function serializeFrontmatter(frontmatter: DocumentFrontmatter): string {
     font_family: frontmatter.font_family,
     font_size: frontmatter.font_size,
     line_height: frontmatter.line_height,
+    confidential_mode: frontmatter.confidential_mode,
+    confidential_label: frontmatter.confidential_label,
     logo: frontmatter.logo,
     logo_position: frontmatter.logo_position,
     header_left: frontmatter.header_left,
