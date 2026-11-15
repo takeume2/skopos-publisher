@@ -776,7 +776,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeBadges)
     .use(rehypeCodeBlockLabels)
     .use(rehypeKatex)
-    .use(rehypeHighlight, { ignoreMissing: true })
+    .use(rehypeHighlight)
     .use(rehypeStringify);
 
   const file = await processor.process(preprocessedBody);
