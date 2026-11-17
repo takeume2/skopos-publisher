@@ -6,6 +6,7 @@ import {
   DocumentFrontmatter,
   DocumentTheme,
   FontFamilyOption,
+  HeadingHighlightMode,
   LogoPosition,
   PageOrientation,
   PageSize,
@@ -20,6 +21,11 @@ const VALID_PAGE_SIZES: PageSize[] = ["A4", "A5", "B5", "Letter"];
 const VALID_ORIENTATIONS: PageOrientation[] = ["portrait", "landscape"];
 const VALID_THEMES: DocumentTheme[] = ["business", "technical", "minimal"];
 const VALID_FONT_FAMILIES: FontFamilyOption[] = ["theme", "sans", "serif"];
+const VALID_HEADING_HIGHLIGHT_MODES: HeadingHighlightMode[] = [
+  "none",
+  "tinted",
+  "solid",
+];
 const VALID_COVER_OVERLAY_MODES: CoverOverlayMode[] = [
   "light-fade",
   "dark-fade",
@@ -86,6 +92,12 @@ function normalizeFrontmatter(raw: Record<string, unknown>): DocumentFrontmatter
     ? (raw.theme as DocumentTheme)
     : DEFAULT_FRONTMATTER.theme;
 
+  const headingHighlight = VALID_HEADING_HIGHLIGHT_MODES.includes(
+    raw.heading_highlight as HeadingHighlightMode
+  )
+    ? (raw.heading_highlight as HeadingHighlightMode)
+    : DEFAULT_FRONTMATTER.heading_highlight;
+
   const fontFamily = VALID_FONT_FAMILIES.includes(
     raw.font_family as FontFamilyOption
   )
@@ -147,6 +159,7 @@ function normalizeFrontmatter(raw: Record<string, unknown>): DocumentFrontmatter
       raw.accent_color,
       DEFAULT_FRONTMATTER.accent_color
     ),
+    heading_highlight: headingHighlight,
     font_family: fontFamily,
     font_size: asClampedNumber(
       raw.font_size,
@@ -230,6 +243,7 @@ export function serializeFrontmatter(frontmatter: DocumentFrontmatter): string {
     theme: frontmatter.theme,
     primary_color: frontmatter.primary_color,
     accent_color: frontmatter.accent_color,
+    heading_highlight: frontmatter.heading_highlight,
     font_family: frontmatter.font_family,
     font_size: frontmatter.font_size,
     line_height: frontmatter.line_height,

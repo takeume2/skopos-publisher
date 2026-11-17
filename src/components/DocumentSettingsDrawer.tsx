@@ -21,6 +21,7 @@ import type {
   DocumentFrontmatter,
   DocumentTheme,
   FontFamilyOption,
+  HeadingHighlightMode,
   LogoPosition,
   PageOrientation,
   PageSize,
@@ -240,6 +241,7 @@ export function DocumentSettingsDrawer({
       ...frontmatter,
       primary_color: "",
       accent_color: "",
+      heading_highlight: "tinted",
       font_family: "theme",
       font_size: 10,
       line_height: 1.7,
@@ -653,6 +655,26 @@ export function DocumentSettingsDrawer({
                       />
                     </div>
                   </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[10px] text-slate-400">
+                    見出しハイライト
+                  </label>
+                  <select
+                    value={frontmatter.heading_highlight}
+                    onChange={(e) =>
+                      updateField(
+                        "heading_highlight",
+                        e.target.value as HeadingHighlightMode
+                      )
+                    }
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                  >
+                    <option value="tinted">淡色ハイライト（推奨・テーマ連動）</option>
+                    <option value="solid">濃色帯（H1強調・H2淡色）</option>
+                    <option value="none">標準（ハイライトなし）</option>
+                  </select>
                 </div>
 
                 <div>
