@@ -6,6 +6,7 @@ export type LogoPosition = "cover-only" | "header-only" | "cover-and-header";
 export type TocDepth = 1 | 2 | 3;
 export type ConfidentialMode = "none" | "standard" | "strict";
 export type CoverOverlayMode = "light-fade" | "dark-fade" | "none";
+export type HeadingHighlightMode = "none" | "tinted" | "solid";
 
 export interface DocumentFrontmatter {
   title: string;
@@ -26,6 +27,7 @@ export interface DocumentFrontmatter {
   theme: DocumentTheme;
   primary_color: string;
   accent_color: string;
+  heading_highlight: HeadingHighlightMode;
   font_family: FontFamilyOption;
   font_size: number;
   line_height: number;
@@ -58,6 +60,7 @@ export const DEFAULT_FRONTMATTER: DocumentFrontmatter = {
   theme: "business",
   primary_color: "",
   accent_color: "",
+  heading_highlight: "tinted",
   font_family: "theme",
   font_size: 10,
   line_height: 1.7,

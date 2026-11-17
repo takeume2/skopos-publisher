@@ -45,6 +45,11 @@ const SANITIZE_SCHEMA = {
       "className",
       "dataChapterMarker",
     ],
+    span: [
+      ...((defaultSchema.attributes?.span as string[]) || []),
+      "className",
+      "dataHl",
+    ],
     img: ["src", "alt", "title", "width", "height", "loading", "decoding"],
     th: [...((defaultSchema.attributes?.th as string[]) || []), "align", "style"],
     td: [...((defaultSchema.attributes?.td as string[]) || []), "align", "style"],
@@ -119,6 +124,10 @@ function preprocessDirectives(markdownBody: string): string {
     .replace(
       /<!--\s*\/chapter\s*-->/gi,
       '\n<div data-chapter-marker="end"></div>\n'
+    )
+    .replace(
+      /<!--\s*hl:\s*([a-zA-Z0-9_-]+)\s*-->/gi,
+      '<span data-hl="$1"></span>'
     );
 }
 
@@ -291,6 +300,125 @@ function rehypeChapterCovers() {
  * 特定単語(:Critical:, :High:, :Draft:等)をバッジ要素へ変換する
  * コードブロック(<pre>)およびインラインコード(<code>)内は対象外
  */
+
+const HEADING_HL_ALIASES: Record<string, string> = {
+  critical: "critical",
+  danger: "critical",
+  high: "high",
+  medium: "medium",
+  warning: "medium",
+  low: "low",
+  success: "low",
+  info: "info",
+  scoping: "scoping",
+  neutral: "neutral",
+  primary: "primary",
+  accent: "accent",
+  none: "none",
+};
+
+const BADGE_TO_HL_KIND: Array<[string, string]> = [
+  ["doc-badge-critical", "critical"],
+  ["doc-badge-high", "high"],
+  ["doc-badge-medium", "medium"],
+  ["doc-badge-low", "low"],
+  ["doc-badge-final", "low"],
+  ["doc-badge-info", "info"],
+  ["doc-badge-active", "info"],
+  ["doc-badge-scoping", "scoping"],
+  ["doc-badge-draft", "neutral"],
+  ["doc-badge-closed", "neutral"],
+];
+
+function extractExplicitHlAndStrip(node: Element): string | null {
+  let found: string | null = null;
+  if (!node.children) return null;
+
+  const nextChildren: Element["children"] = [];
+  for (const child of node.children) {
+    if (
+      child.type === "element" &&
+      child.tagName === "span" &&
+      typeof child.properties?.dataHl === "string"
+    ) {
+      const raw = child.properties.dataHl.trim().toLowerCase();
+      if (!found && raw in HEADING_HL_ALIASES) {
+        found = HEADING_HL_ALIASES[raw];
+      }
+      continue;
+    }
+    if (child.type === "element") {
+      const nested = extractExplicitHlAndStrip(child);
+      if (!found && nested) found = nested;
+    }
+    nextChildren.push(child);
+  }
+  node.children = nextChildren;
+  return found;
+}
+
+function findBadgeHlKind(node: Element): string | null {
+  let detected: string | null = null;
+  visit(node, "element", (child: Element) => {
+    if (detected) return;
+    const classes = Array.isArray(child.properties?.className)
+      ? (child.properties.className as string[])
+      : [];
+    for (const [badgeClass, hlKind] of BADGE_TO_HL_KIND) {
+      if (classes.includes(badgeClass)) {
+        detected = hlKind;
+        return;
+      }
+    }
+  });
+  return detected;
+}
+
+function rehypeHeadingHighlights() {
+  return (tree: Root) => {
+    visit(tree, "element", (node: Element, _idx, parent) => {
+      if (
+        node.tagName !== "h1" &&
+        node.tagName !== "h2" &&
+        node.tagName !== "h3"
+      ) {
+        return;
+      }
+
+      if (parent && parent.type === "element") {
+        const pClasses = Array.isArray(parent.properties?.className)
+          ? (parent.properties.className as string[])
+          : [];
+        if (
+          pClasses.includes("chapter-cover-inner") ||
+          pClasses.includes("doc-chapter-cover")
+        ) {
+          return;
+        }
+      }
+
+      const explicitKind = extractExplicitHlAndStrip(node);
+      const badgeKind = explicitKind ? null : findBadgeHlKind(node);
+      const resolvedKind = explicitKind || badgeKind;
+
+      if (!resolvedKind) return;
+
+      const existingClasses = Array.isArray(node.properties?.className)
+        ? (node.properties.className as string[])
+        : [];
+      const nextClasses =
+        resolvedKind === "none"
+          ? [...existingClasses, "doc-hl-none"]
+          : [...existingClasses, "doc-hl-custom", `doc-hl-${resolvedKind}`];
+
+      node.properties = {
+        ...node.properties,
+        className: nextClasses,
+      };
+    });
+  };
+}
+
 function rehypeBadges() {
   return (tree: Root) => {
     visit(tree, "element", (node: Element) => {
@@ -683,6 +811,31 @@ function buildCoverHtml(
   `;
 }
 
+function formatTocTextHtml(text: string): string {
+  const regex = new RegExp(BADGE_REGEX.source, "gi");
+  let result = "";
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      result += escapeHtml(text.slice(lastIndex, match.index));
+    }
+    const spec = BADGE_SPEC_MAP[match[1].toLowerCase()];
+    if (spec) {
+      result += `<span class="doc-badge ${spec.className}">${escapeHtml(spec.label)}</span>`;
+    } else {
+      result += escapeHtml(match[0]);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    result += escapeHtml(text.slice(lastIndex));
+  }
+  return result;
+}
+
 function buildTocHtml(fm: DocumentFrontmatter, entries: TocEntry[]): string {
   if (!fm.toc) return "";
 
@@ -693,7 +846,7 @@ function buildTocHtml(fm: DocumentFrontmatter, entries: TocEntry[]): string {
             (entry) => `
             <li class="toc-item toc-level-${entry.level}">
               <a href="#${escapeHtml(entry.id)}" class="toc-link">
-                <span class="toc-text">${escapeHtml(entry.text)}</span>
+                <span class="toc-text">${formatTocTextHtml(entry.text)}</span>
                 <span class="toc-dots" aria-hidden="true"></span>
                 <span class="toc-page-num" data-target-id="${escapeHtml(entry.id)}"></span>
               </a>
@@ -774,6 +927,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeResolveAssets(assets))
     .use(rehypeCallouts)
     .use(rehypeBadges)
+    .use(rehypeHeadingHighlights)
     .use(rehypeCodeBlockLabels)
     .use(rehypeKatex)
     .use(rehypeHighlight)
@@ -795,7 +949,7 @@ export async function compileMarkdownToHtml(
   const backCoverHtml = buildBackCoverHtml(frontmatter, backCoverImageSrc);
 
   const fullHtml = `
-    <article class="doc-root theme-${frontmatter.theme}">
+    <article class="doc-root theme-${frontmatter.theme} heading-hl-${frontmatter.heading_highlight}">
       ${coverHtml}
       ${tocHtml}
       <main class="doc-body">

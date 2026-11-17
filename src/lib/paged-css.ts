@@ -714,6 +714,13 @@ export function buildPagedMediaCss(
       padding-right: 1.5mm;
     }
 
+    .toc-text .doc-badge {
+      font-size: 6.8pt;
+      padding: 0.2mm 1.4mm;
+      margin: 0 1.2mm 0 0;
+      vertical-align: 0.5pt;
+    }
+
     .toc-dots {
       flex: 1;
       min-width: 8mm;
@@ -901,9 +908,158 @@ export function buildPagedMediaCss(
       margin: 5mm 0 2mm 0;
     }
 
+
+    /* 見出し行ハイライト（階層連動 + バッジ連動 + <!-- hl: ... --> 上書き） */
+    .doc-body h1 .doc-badge,
+    .doc-body h2 .doc-badge,
+    .doc-body h3 .doc-badge {
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.72);
+    }
+
+    .doc-root.heading-hl-tinted .doc-body h1:not(.doc-chapter-cover h1):not(.doc-hl-none):not(.doc-hl-custom) {
+      background-color: color-mix(in srgb, var(--doc-primary) 10%, #ffffff);
+      color: var(--doc-primary);
+      border-bottom: none;
+      border-left: 4pt solid var(--doc-primary);
+      padding: 2.5mm 4mm;
+      border-radius: 1mm;
+    }
+
+    .doc-root.heading-hl-tinted .doc-body h2:not(.doc-hl-none):not(.doc-hl-custom) {
+      background-color: color-mix(in srgb, var(--doc-accent) 9%, #ffffff);
+      color: var(--doc-primary);
+      border-left: 3pt solid var(--doc-accent);
+      padding: 1.8mm 3.5mm;
+      border-radius: 1mm;
+    }
+
+    .doc-root.heading-hl-solid .doc-body h1:not(.doc-chapter-cover h1):not(.doc-hl-none):not(.doc-hl-custom) {
+      background-color: var(--doc-primary);
+      color: #ffffff;
+      border: none;
+      padding: 2.8mm 4.5mm;
+      border-radius: 1mm;
+    }
+
+    .doc-root.heading-hl-solid .doc-body h1:not(.doc-chapter-cover h1):not(.doc-hl-none):not(.doc-hl-custom) code {
+      background-color: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+
+    .doc-root.heading-hl-solid .doc-body h2:not(.doc-hl-none):not(.doc-hl-custom) {
+      background-color: color-mix(in srgb, var(--doc-primary) 10%, #ffffff);
+      color: var(--doc-primary);
+      border-left: 3.5pt solid var(--doc-primary);
+      padding: 1.8mm 3.5mm;
+      border-radius: 1mm;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-custom {
+      border-bottom: none;
+      padding: 2mm 3.8mm;
+      border-radius: 1mm;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body h1.doc-hl-custom {
+      padding: 2.5mm 4.2mm;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body h3.doc-hl-custom {
+      padding: 1.4mm 3mm;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-critical {
+      background-color: #fff1f2;
+      color: #9f1239;
+      border-left: 3.5pt solid #be123c;
+    }
+
+    .doc-root.heading-hl-solid .doc-body h1.doc-hl-critical {
+      background-color: #9f1239;
+      color: #ffffff;
+      border-left: none;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-high {
+      background-color: #fff7ed;
+      color: #c2410c;
+      border-left: 3.5pt solid #ea580c;
+    }
+
+    .doc-root.heading-hl-solid .doc-body h1.doc-hl-high {
+      background-color: #c2410c;
+      color: #ffffff;
+      border-left: none;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-medium {
+      background-color: #fffbeb;
+      color: #b45309;
+      border-left: 3.5pt solid #d97706;
+    }
+
+    .doc-root.heading-hl-solid .doc-body h1.doc-hl-medium {
+      background-color: #b45309;
+      color: #ffffff;
+      border-left: none;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-low {
+      background-color: #f0fdf4;
+      color: #15803d;
+      border-left: 3.5pt solid #16a34a;
+    }
+
+    .doc-root.heading-hl-solid .doc-body h1.doc-hl-low {
+      background-color: #15803d;
+      color: #ffffff;
+      border-left: none;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-info {
+      background-color: #eff6ff;
+      color: #1d4ed8;
+      border-left: 3.5pt solid #2563eb;
+    }
+
+    .doc-root.heading-hl-solid .doc-body h1.doc-hl-info {
+      background-color: #1d4ed8;
+      color: #ffffff;
+      border-left: none;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-scoping {
+      background-color: #f5f3ff;
+      color: #6d28d9;
+      border-left: 3.5pt solid #7c3aed;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-neutral {
+      background-color: #f8fafc;
+      color: #334155;
+      border-left: 3.5pt solid #64748b;
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-primary {
+      background-color: color-mix(in srgb, var(--doc-primary) 10%, #ffffff);
+      color: var(--doc-primary);
+      border-left: 3.5pt solid var(--doc-primary);
+    }
+
+    .doc-root:not(.heading-hl-none) .doc-body .doc-hl-accent {
+      background-color: color-mix(in srgb, var(--doc-accent) 10%, #ffffff);
+      color: var(--doc-primary);
+      border-left: 3.5pt solid var(--doc-accent);
+    }
+
+    .doc-root.heading-hl-solid .doc-body h1.doc-hl-custom code {
+      background-color: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+
     .doc-body p {
       margin: 0 0 3.5mm 0;
-      text-align: justify;
+      text-align: left;
       orphans: 3;
       widows: 3;
     }
@@ -954,6 +1110,8 @@ export function buildPagedMediaCss(
     .doc-body a {
       color: var(--doc-accent);
       text-decoration: underline;
+      overflow-wrap: anywhere;
+      word-break: break-all;
     }
 
     .doc-body img {

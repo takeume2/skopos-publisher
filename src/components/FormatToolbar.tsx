@@ -11,6 +11,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Highlighter,
   ImagePlus,
   Info,
   Italic,
@@ -56,6 +57,16 @@ export function FormatToolbar({
       title: "見出し H3",
       icon: <Heading3 className="h-3.5 w-3.5" />,
       snippet: { label: "H3", before: "### ", placeholder: "見出し3", block: true },
+    },
+    {
+      title: "見出しハイライト指定 <!-- hl: ... -->",
+      icon: <Highlighter className="h-3.5 w-3.5" />,
+      snippet: {
+        label: "HL",
+        before: " <!-- hl: ",
+        after: " -->",
+        placeholder: "info",
+      },
     },
     {
       title: "太字",
