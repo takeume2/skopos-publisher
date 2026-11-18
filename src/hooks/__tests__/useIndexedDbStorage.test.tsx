@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { clear, get, set } from "idb-keyval";
+import { clear, get, keys, set } from "idb-keyval";
 import { useIndexedDbStorage } from "@/hooks/useIndexedDbStorage";
 
 describe("useIndexedDbStorage", () => {
@@ -101,5 +101,98 @@ describe("useIndexedDbStorage", () => {
     );
     expect(result.current.assets["asset:img_temp"]).toBeUndefined();
     expect(await get("mdpub:active_doc_id:v1")).toBe(result.current.activeDocId);
+  });
+
+  it("stores multiple shared assets with custom labels and removes metadata on delete", async () => {
+    const { result } = renderHook(() => useIndexedDbStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    await act(async () => {
+      await result.current.saveAsset(
+        "asset:shared_logo_100",
+        "data:image/png;base64,LOGO_A",
+        "company-a.png"
+      );
+      await result.current.saveAsset(
+        "asset:shared_logo_200",
+        "data:image/png;base64,LOGO_B",
+        "company-b.png"
+      );
+    });
+
+    expect(result.current.sharedAssetList).toHaveLength(2);
+    expect(result.current.sharedAssetList.map((a) => a.label)).toEqual([
+      "company-a.png",
+      "company-b.png",
+    ]);
+
+    await act(async () => {
+      await result.current.removeAsset("asset:shared_logo_100");
+    });
+
+    expect(result.current.sharedAssetList).toHaveLength(1);
+    const meta = await get<Record<string, string>>("mdpub:shared_meta:v1");
+    expect(meta?.["asset:shared_logo_100"]).toBeUndefined();
+    expect(meta?.["asset:shared_logo_200"]).toBe("company-b.png");
+
+    await act(async () => {
+      await result.current.clearSharedAssets();
+    });
+    expect(result.current.sharedAssetList).toHaveLength(0);
+    expect(await get("mdpub:shared_meta:v1")).toBeUndefined();
+  });
+
+  it("deletes a single active document with its doc_assets and switches to remaining doc", async () => {
+    const { result } = renderHook(() => useIndexedDbStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    const firstId = result.current.activeDocId;
+    await act(async () => {
+      await result.current.saveAsset("asset:logo_1", "data:image/png;base64,SHARED");
+      await result.current.saveAsset("asset:img_first", "data:image/png;base64,FIRST_IMG");
+    });
+
+    let secondId = "";
+    await act(async () => {
+      secondId = await result.current.createDocument(
+        '---\ntitle: "削除対象"\n---\n\n![img](asset:img_second)'
+      );
+      await result.current.saveAsset("asset:img_second", "data:image/png;base64,SECOND_IMG");
+    });
+
+    expect(result.current.activeDocId).toBe(secondId);
+
+    await act(async () => {
+      await result.current.deleteDocument(secondId);
+    });
+
+    expect(result.current.documentList).toHaveLength(1);
+    expect(result.current.activeDocId).toBe(firstId);
+    expect(result.current.assets["asset:logo_1"]).toBe(
+      "data:image/png;base64,SHARED"
+    );
+
+    const allKeys = await keys();
+    expect(
+      allKeys.some((k) => String(k).startsWith(`mdpub:doc_asset:${secondId}:`))
+    ).toBe(false);
+  });
+
+  it("expands inline doc_assets for an inactive document in getExpandedMarkdownForDoc", async () => {
+    const { result } = renderHook(() => useIndexedDbStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    const doc1Id = result.current.activeDocId;
+    await act(async () => {
+      result.current.setMarkdown('---\ntitle: "文書1"\n---\n\n![pic](asset:img_1)');
+      await result.current.saveAsset("asset:img_1", "data:image/png;base64,DOC1_DATA");
+      await result.current.createDocument('---\ntitle: "文書2"\n---\n\n# 2');
+    });
+
+    // 現在アクティブなのは文書2だが、文書1の展開結果を取得できること
+    const exported = await result.current.getExpandedMarkdownForDoc(doc1Id);
+    expect(exported).not.toBeNull();
+    expect(exported?.title).toBe("文書1");
+    expect(exported?.content).toContain("![pic](data:image/png;base64,DOC1_DATA)");
   });
 });

@@ -12,7 +12,7 @@ import {
 } from "@/lib/frontmatter";
 import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
-import { DocumentSidebar } from "./DocumentSidebar";
+import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
 import { EditorPane } from "./EditorPane";
 import { PagedPreviewPane } from "./PagedPreviewPane";
 import { TopToolbar, ViewMode } from "./TopToolbar";
@@ -217,6 +217,34 @@ export function Workspace() {
     }
   }, [activeDocId, handleExportDocumentById]);
 
+  const handleAddSharedAsset = useCallback(
+    async (file: File) => {
+      if (!file.type.startsWith("image/")) return;
+      const dataUrl = await readFileAsDataUrl(file);
+      const newId = `asset:shared_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 5)}`;
+      await saveAsset(newId, dataUrl, file.name);
+    },
+    [saveAsset]
+  );
+
+  const handleApplySharedAsset = useCallback(
+    (role: SharedAssetRole, assetId: string) => {
+      const nextFm: DocumentFrontmatter = {
+        ...parsed.frontmatter,
+        [role]: assetId,
+      };
+      if (role === "cover_image") {
+        nextFm.cover = true;
+      } else if (role === "back_cover_image") {
+        nextFm.back_cover = true;
+      }
+      handleFrontmatterChange(nextFm);
+    },
+    [handleFrontmatterChange, parsed.frontmatter]
+  );
+
   const handlePrint = useCallback(() => {
     window.print();
   }, []);
@@ -299,6 +327,11 @@ export function Workspace() {
         <DocumentSidebar
           isOpen={prefs.isSidebarOpen}
           activeDocId={activeDocId}
+          activeFrontmatterAssets={{
+            logo: parsed.frontmatter.logo,
+            cover_image: parsed.frontmatter.cover_image,
+            back_cover_image: parsed.frontmatter.back_cover_image,
+          }}
           documents={documentList}
           sharedAssets={sharedAssetList}
           onSelectDocument={(docId) => void switchDocument(docId)}
@@ -314,6 +347,8 @@ export function Workspace() {
               totalBytes: totalDocsBytes,
             })
           }
+          onAddSharedAsset={(file) => void handleAddSharedAsset(file)}
+          onApplySharedAsset={handleApplySharedAsset}
           onRequestDeleteSharedAsset={(asset) =>
             setModalState({ kind: "delete-shared-asset", asset })
           }
@@ -384,6 +419,7 @@ export function Workspace() {
           onClose={() => setIsSettingsOpen(false)}
           frontmatter={parsed.frontmatter}
           assets={assets}
+          sharedAssets={sharedAssetList}
           onChangeFrontmatter={handleFrontmatterChange}
           onSaveAsset={saveAsset}
           onRemoveAsset={removeAsset}
@@ -479,11 +515,11 @@ export function Workspace() {
               id="mdpub-dialog-title"
               className="text-sm font-semibold text-red-300"
             >
-              すべての文書を削除しますか？
+              全ドキュメントを消去・初期化しますか？
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
               登録されている {effectiveModal.count} 件の文書と独立画像（合計{" "}
-              {formatBytes(effectiveModal.totalBytes)}）をすべて削除します。
+              {formatBytes(effectiveModal.totalBytes)}）を削除し、新しい空の文書 1 件にリセットします。
               この操作は取り消せません。
             </p>
             <p className="mt-1.5 text-[11px] text-slate-400">
@@ -505,7 +541,7 @@ export function Workspace() {
                 }}
                 className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
               >
-                すべて削除する
+                消去・初期化する
               </button>
             </div>
           </div>
@@ -574,7 +610,7 @@ export function Workspace() {
                 }}
                 className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
               >
-                すべて削除する
+                消去・初期化する
               </button>
             </div>
           </div>

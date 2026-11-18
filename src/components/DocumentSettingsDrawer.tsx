@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { resolveAssetSrc } from "@/lib/markdown";
+import type { SharedAssetSummary } from "@/hooks/useIndexedDbStorage";
 import type {
   ConfidentialMode,
   CoverOverlayMode,
@@ -33,8 +34,9 @@ interface DocumentSettingsDrawerProps {
   onClose: () => void;
   frontmatter: DocumentFrontmatter;
   assets: Record<string, string>;
+  sharedAssets?: SharedAssetSummary[];
   onChangeFrontmatter: (next: DocumentFrontmatter) => void;
-  onSaveAsset: (assetId: string, dataUrl: string) => Promise<void>;
+  onSaveAsset: (assetId: string, dataUrl: string, label?: string) => Promise<void>;
   onRemoveAsset: (assetId: string) => Promise<void>;
 }
 
@@ -100,9 +102,9 @@ interface ImageDropFieldProps {
   label: string;
   value: string;
   resolvedSrc: string;
-  assetId: string;
-  onSave: (assetId: string, dataUrl: string) => Promise<void>;
-  onRemove: (assetId: string) => Promise<void>;
+  assetPrefix: string;
+  sharedAssets?: SharedAssetSummary[];
+  onSave: (assetId: string, dataUrl: string, label?: string) => Promise<void>;
   onChangeValue: (nextVal: string) => void;
 }
 
@@ -110,9 +112,9 @@ function ImageDropField({
   label,
   value,
   resolvedSrc,
-  assetId,
+  assetPrefix,
+  sharedAssets = [],
   onSave,
-  onRemove,
   onChangeValue,
 }: ImageDropFieldProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -123,8 +125,11 @@ function ImageDropField({
     const reader = new FileReader();
     reader.onload = async () => {
       if (typeof reader.result === "string") {
-        await onSave(assetId, reader.result);
-        onChangeValue(assetId);
+        const newId = `${assetPrefix}${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 5)}`;
+        await onSave(newId, reader.result, file.name);
+        onChangeValue(newId);
       }
     };
     reader.readAsDataURL(file);
@@ -154,14 +159,9 @@ function ImageDropField({
           />
           <button
             type="button"
-            onClick={async () => {
-              if (value.startsWith("asset:")) {
-                await onRemove(value);
-              }
-              onChangeValue("");
-            }}
-            title="画像を削除"
-            aria-label={`${label}を削除`}
+            onClick={() => onChangeValue("")}
+            title="この文書から解除（共通画像は保持）"
+            aria-label={`${label}をこの文書から解除`}
             className="rounded p-1.5 text-red-400 hover:bg-red-950/50"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -202,6 +202,25 @@ function ImageDropField({
           </span>
         </div>
       )}
+      {!resolvedSrc && sharedAssets.length > 0 && (
+        <select
+          value=""
+          aria-label={`${label}を共通画像から選択`}
+          onChange={(e) => {
+            if (e.target.value) {
+              onChangeValue(e.target.value);
+            }
+          }}
+          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 focus:border-sky-500 focus:outline-none"
+        >
+          <option value="">登録済みの共通画像から選択...</option>
+          {sharedAssets.map((item) => (
+            <option key={item.assetId} value={item.assetId}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }
@@ -211,9 +230,9 @@ export function DocumentSettingsDrawer({
   onClose,
   frontmatter,
   assets,
+  sharedAssets = [],
   onChangeFrontmatter,
   onSaveAsset,
-  onRemoveAsset,
 }: DocumentSettingsDrawerProps) {
   const [openSections, setOpenSections] = useState({
     basic: true,
@@ -779,9 +798,9 @@ export function DocumentSettingsDrawer({
                       label="表紙の背景画像"
                       value={frontmatter.cover_image}
                       resolvedSrc={resolvedCoverImageSrc}
-                      assetId="asset:cover_bg_1"
+                      assetPrefix="asset:shared_cover_"
+                      sharedAssets={sharedAssets}
                       onSave={onSaveAsset}
-                      onRemove={onRemoveAsset}
                       onChangeValue={(val) => updateField("cover_image", val)}
                     />
                     {frontmatter.cover_image && (
@@ -882,9 +901,9 @@ export function DocumentSettingsDrawer({
                       label="裏表紙の背景画像"
                       value={frontmatter.back_cover_image}
                       resolvedSrc={resolvedBackCoverImageSrc}
-                      assetId="asset:backcover_bg_1"
+                      assetPrefix="asset:shared_backcover_"
+                      sharedAssets={sharedAssets}
                       onSave={onSaveAsset}
-                      onRemove={onRemoveAsset}
                       onChangeValue={(val) =>
                         updateField("back_cover_image", val)
                       }
@@ -998,9 +1017,9 @@ export function DocumentSettingsDrawer({
                   label="ロゴ画像（ブラウザ内保存）"
                   value={frontmatter.logo}
                   resolvedSrc={resolvedLogoSrc}
-                  assetId="asset:logo_1"
+                  assetPrefix="asset:shared_logo_"
+                  sharedAssets={sharedAssets}
                   onSave={onSaveAsset}
-                  onRemove={onRemoveAsset}
                   onChangeValue={(val) => updateField("logo", val)}
                 />
 

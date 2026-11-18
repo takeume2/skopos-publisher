@@ -12,6 +12,7 @@ const KEY_PREFIX_SHARED_ASSET = "mdpub:shared_asset:";
 const KEY_ACTIVE_DOC_ID = "mdpub:active_doc_id:v1";
 const KEY_MIGRATED_V2 = "mdpub:migrated_v2:v1";
 const KEY_PREFS = "mdpub:prefs:v1";
+const KEY_SHARED_META = "mdpub:shared_meta:v1";
 
 const LEGACY_KEY_MARKDOWN = "mdpub:markdown:v1";
 const LEGACY_KEY_ASSETS = "mdpub:assets:v1";
@@ -22,6 +23,10 @@ export const SHARED_ASSET_IDS = new Set([
   "asset:backcover_bg_1",
   "asset:back_cover_bg_1",
 ]);
+
+export function isSharedAssetId(assetId: string): boolean {
+  return SHARED_ASSET_IDS.has(assetId) || assetId.startsWith("asset:shared_");
+}
 
 const SHARED_ASSET_LABELS: Record<string, string> = {
   "asset:logo_1": "ロゴ画像",
@@ -143,6 +148,7 @@ export function useIndexedDbStorage() {
     Record<string, string>
   >({});
   const [sharedAssets, setSharedAssets] = useState<Record<string, string>>({});
+  const [sharedMeta, setSharedMeta] = useState<Record<string, string>>({});
   const [prefs, setPrefsState] = useState<UiPreferences>(DEFAULT_PREFS);
   const [isLoaded, setIsLoaded] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
@@ -190,18 +196,22 @@ export function useIndexedDbStorage() {
 
     async function hydrate() {
       try {
-        const [allKeys, migratedV2, savedActiveId, savedPrefs] =
+        const [allKeys, migratedV2, savedActiveId, savedPrefs, savedSharedMeta] =
           await Promise.all([
             keys(),
             get<boolean>(KEY_MIGRATED_V2),
             get<string>(KEY_ACTIVE_DOC_ID),
             get<Partial<UiPreferences>>(KEY_PREFS),
+            get<Record<string, string>>(KEY_SHARED_META),
           ]);
 
         if (!active) return;
 
         if (savedPrefs && typeof savedPrefs === "object") {
           setPrefsState({ ...DEFAULT_PREFS, ...savedPrefs });
+        }
+        if (savedSharedMeta && typeof savedSharedMeta === "object") {
+          setSharedMeta(savedSharedMeta);
         }
 
         const docKeys = allKeys.filter(
@@ -244,7 +254,7 @@ export function useIndexedDbStorage() {
             const writes: Array<Promise<void>> = [];
             for (const [assetId, dataUrl] of Object.entries(legacyAssets)) {
               if (typeof dataUrl !== "string") continue;
-              if (SHARED_ASSET_IDS.has(assetId)) {
+              if (isSharedAssetId(assetId)) {
                 loadedShared[assetId] = dataUrl;
                 writes.push(
                   set(`${KEY_PREFIX_SHARED_ASSET}${assetId}`, dataUrl)
@@ -397,11 +407,20 @@ export function useIndexedDbStorage() {
   const sharedAssetList: SharedAssetSummary[] = useMemo(() => {
     return Object.entries(sharedAssets).map(([assetId, dataUrl]) => ({
       assetId,
-      label: SHARED_ASSET_LABELS[assetId] || assetId,
+      label:
+        sharedMeta[assetId] ||
+        SHARED_ASSET_LABELS[assetId] ||
+        (assetId.startsWith("asset:shared_logo")
+          ? "ロゴ画像"
+          : assetId.startsWith("asset:shared_cover")
+            ? "表紙背景画像"
+            : assetId.startsWith("asset:shared_backcover")
+              ? "裏表紙背景画像"
+              : "共通画像"),
       dataUrl,
       bytes: getByteSize(dataUrl),
     }));
-  }, [sharedAssets]);
+  }, [sharedAssets, sharedMeta]);
 
   const setMarkdown = useCallback(
     (nextValue: string) => {
@@ -500,10 +519,19 @@ export function useIndexedDbStorage() {
   );
 
   const saveSharedAsset = useCallback(
-    async (assetId: string, dataUrl: string) => {
+    async (assetId: string, dataUrl: string, label?: string) => {
       try {
         await set(`${KEY_PREFIX_SHARED_ASSET}${assetId}`, dataUrl);
         setSharedAssets((prev) => ({ ...prev, [assetId]: dataUrl }));
+        if (label) {
+          setSharedMeta((prev) => {
+            const next = { ...prev, [assetId]: label };
+            void set(KEY_SHARED_META, next).catch((err) =>
+              handleStorageError(err, "Failed to save shared asset metadata")
+            );
+            return next;
+          });
+        }
       } catch (err) {
         handleStorageError(err, "Failed to save shared asset");
       }
@@ -520,6 +548,15 @@ export function useIndexedDbStorage() {
           delete next[assetId];
           return next;
         });
+        setSharedMeta((prev) => {
+          if (!(assetId in prev)) return prev;
+          const next = { ...prev };
+          delete next[assetId];
+          void set(KEY_SHARED_META, next).catch((err) =>
+            handleStorageError(err, "Failed to update shared asset metadata")
+          );
+          return next;
+        });
       } catch (err) {
         handleStorageError(err, "Failed to remove shared asset");
       }
@@ -534,10 +571,9 @@ export function useIndexedDbStorage() {
         (k): k is string =>
           typeof k === "string" && k.startsWith(KEY_PREFIX_SHARED_ASSET)
       );
-      if (sharedKeys.length > 0) {
-        await delMany(sharedKeys);
-      }
+      await delMany([...sharedKeys, KEY_SHARED_META]);
       setSharedAssets({});
+      setSharedMeta({});
     } catch (err) {
       handleStorageError(err, "Failed to clear shared assets");
     }
@@ -580,9 +616,9 @@ export function useIndexedDbStorage() {
   );
 
   const saveAsset = useCallback(
-    async (assetId: string, dataUrl: string) => {
-      if (SHARED_ASSET_IDS.has(assetId)) {
-        await saveSharedAsset(assetId, dataUrl);
+    async (assetId: string, dataUrl: string, label?: string) => {
+      if (isSharedAssetId(assetId)) {
+        await saveSharedAsset(assetId, dataUrl, label);
       } else {
         await saveDocAssetsBatch({ [assetId]: dataUrl });
       }
@@ -592,7 +628,7 @@ export function useIndexedDbStorage() {
 
   const removeAsset = useCallback(
     async (assetId: string) => {
-      if (SHARED_ASSET_IDS.has(assetId)) {
+      if (isSharedAssetId(assetId)) {
         await removeSharedAsset(assetId);
         return;
       }
