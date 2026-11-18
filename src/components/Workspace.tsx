@@ -1,20 +1,38 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useIndexedDbStorage } from "@/hooks/useIndexedDbStorage";
+import {
+  DocumentSummary,
+  SharedAssetSummary,
+  useIndexedDbStorage,
+} from "@/hooks/useIndexedDbStorage";
 import {
   parseMarkdownDocument,
   updateMarkdownFrontmatter,
 } from "@/lib/frontmatter";
-import { resolveAssetSrc } from "@/lib/markdown";
 import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
+import { DocumentSidebar } from "./DocumentSidebar";
 import { EditorPane } from "./EditorPane";
 import { PagedPreviewPane } from "./PagedPreviewPane";
 import { TopToolbar, ViewMode } from "./TopToolbar";
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 const MARKDOWN_EXTENSIONS = /\.(md|markdown)$/i;
+
+type ModalState =
+  | { kind: "notice"; title: string; message: string }
+  | { kind: "delete-doc"; doc: DocumentSummary }
+  | { kind: "delete-all-docs"; count: number; totalBytes: number }
+  | { kind: "delete-shared-asset"; asset: SharedAssetSummary }
+  | { kind: "delete-all-shared-assets"; count: number }
+  | null;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -31,45 +49,78 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+function downloadMarkdownFile(title: string, content: string) {
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeTitle = (title || "document").replace(/[\\/:*?"<>|]/g, "_").trim();
+  a.href = url;
+  a.download = `${safeTitle || "document"}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function Workspace() {
   const {
     markdown,
     setMarkdown,
+    activeDocId,
+    documentList,
+    sharedAssetList,
     assets,
     saveAsset,
     saveAssetsBatch,
     removeAsset,
+    clearSharedAssets,
+    switchDocument,
+    createDocument,
+    deleteDocument,
+    deleteAllDocuments,
+    getExpandedMarkdownForDoc,
     prefs,
     updatePrefs,
     resetToSample,
     isLoaded,
     saveStatus,
+    storageError,
+    clearStorageError,
   } = useIndexedDbStorage();
 
   const [viewMode, setViewMode] = useState<ViewMode>("split");
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(true);
   const [splitPercent, setSplitPercent] = useState<number>(46);
-
-  const [noticeDialog, setNoticeDialog] = useState<{
-    title: string;
-    message: string;
-  } | null>(null);
+  const [modalState, setModalState] = useState<ModalState>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const isResizingRef = useRef<boolean>(false);
 
+  const effectiveModal: ModalState = storageError
+    ? {
+        kind: "notice",
+        title: "保存容量エラー",
+        message: storageError,
+      }
+    : modalState;
+
   useEffect(() => {
     const dialogEl = dialogRef.current;
     if (!dialogEl) return;
-    if (noticeDialog) {
+    if (effectiveModal) {
       if (!dialogEl.open) {
         dialogEl.showModal();
       }
     } else if (dialogEl.open) {
       dialogEl.close();
     }
-  }, [noticeDialog]);
+  }, [effectiveModal]);
+
+  const closeModal = useCallback(() => {
+    if (storageError) {
+      clearStorageError();
+    }
+    setModalState(null);
+  }, [clearStorageError, storageError]);
 
   const parsed = useMemo(() => parseMarkdownDocument(markdown), [markdown]);
 
@@ -112,7 +163,8 @@ export function Workspace() {
       );
 
       if (mdFiles.length === 0 && imageFiles.length === 0) {
-        setNoticeDialog({
+        setModalState({
+          kind: "notice",
           title: "フォルダ読込",
           message: "フォルダ内に .md ファイルおよび画像ファイルが見つかりませんでした。",
         });
@@ -124,7 +176,6 @@ export function Workspace() {
         imageFiles.map(async (imgFile) => {
           const dataUrl = await readFileAsDataUrl(imgFile);
           const relRaw = imgFile.webkitRelativePath || imgFile.name;
-          // 先頭の選択フォルダ名（例: "project-dir/images/a.png" -> "images/a.png"）を除去
           const parts = relRaw.split("/");
           const relPath =
             parts.length > 1 ? parts.slice(1).join("/") : relRaw;
@@ -140,7 +191,8 @@ export function Workspace() {
         const mainMd = await mdFiles[0].text();
         setMarkdown(mainMd);
       } else {
-        setNoticeDialog({
+        setModalState({
+          kind: "notice",
           title: "画像アセットを取り込みました",
           message: `${Object.keys(newAssets).length} 件の画像を取り込みました（.md ファイルは見つからなかったため現在の本文を維持します）。`,
         });
@@ -149,35 +201,21 @@ export function Workspace() {
     [saveAssetsBatch, setMarkdown]
   );
 
-  const handleExportMarkdown = useCallback(() => {
-    const expandedMarkdown = markdown.replace(
-      /(!\[[^\]]*\]\()([^)\s]+)(\))/g,
-      (match, prefix: string, rawSrc: string, suffix: string) => {
-        if (
-          rawSrc.startsWith("http://") ||
-          rawSrc.startsWith("https://") ||
-          rawSrc.startsWith("data:")
-        ) {
-          return match;
-        }
-        const resolved = resolveAssetSrc(rawSrc, assets);
-        return resolved !== rawSrc ? `${prefix}${resolved}${suffix}` : match;
+  const handleExportDocumentById = useCallback(
+    async (docId: string) => {
+      const exported = await getExpandedMarkdownForDoc(docId);
+      if (exported) {
+        downloadMarkdownFile(exported.title, exported.content);
       }
-    );
+    },
+    [getExpandedMarkdownForDoc]
+  );
 
-    const blob = new Blob([expandedMarkdown], {
-      type: "text/markdown;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const safeTitle = (parsed.frontmatter.title || "document")
-      .replace(/[\\/:*?"<>|]/g, "_")
-      .trim();
-    a.href = url;
-    a.download = `${safeTitle}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [assets, markdown, parsed.frontmatter.title]);
+  const handleExportMarkdown = useCallback(() => {
+    if (activeDocId) {
+      void handleExportDocumentById(activeDocId);
+    }
+  }, [activeDocId, handleExportDocumentById]);
 
   const handlePrint = useCallback(() => {
     window.print();
@@ -235,6 +273,8 @@ export function Workspace() {
     );
   }
 
+  const totalDocsBytes = documentList.reduce((sum, d) => sum + d.totalBytes, 0);
+
   return (
     <div className="print-workspace-shell flex h-dvh flex-col overflow-hidden bg-slate-950">
       <TopToolbar
@@ -247,11 +287,44 @@ export function Workspace() {
         onImportFolder={handleImportFolder}
         onExportMarkdown={handleExportMarkdown}
         onPrint={handlePrint}
+        isSidebarOpen={prefs.isSidebarOpen}
+        onToggleSidebar={() =>
+          void updatePrefs({ isSidebarOpen: !prefs.isSidebarOpen })
+        }
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
       />
 
       <div className="print-workspace-shell flex min-h-0 flex-1 overflow-hidden">
+        <DocumentSidebar
+          isOpen={prefs.isSidebarOpen}
+          activeDocId={activeDocId}
+          documents={documentList}
+          sharedAssets={sharedAssetList}
+          onSelectDocument={(docId) => void switchDocument(docId)}
+          onCreateDocument={() => void createDocument()}
+          onExportDocument={(docId) => void handleExportDocumentById(docId)}
+          onRequestDeleteDocument={(doc) =>
+            setModalState({ kind: "delete-doc", doc })
+          }
+          onRequestDeleteAllDocuments={() =>
+            setModalState({
+              kind: "delete-all-docs",
+              count: documentList.length,
+              totalBytes: totalDocsBytes,
+            })
+          }
+          onRequestDeleteSharedAsset={(asset) =>
+            setModalState({ kind: "delete-shared-asset", asset })
+          }
+          onRequestDeleteAllSharedAssets={() =>
+            setModalState({
+              kind: "delete-all-shared-assets",
+              count: sharedAssetList.length,
+            })
+          }
+        />
+
         <div
           ref={containerRef}
           className="print-workspace-shell flex min-w-0 flex-1 overflow-hidden"
@@ -316,35 +389,192 @@ export function Workspace() {
           onRemoveAsset={removeAsset}
         />
       </div>
-          <dialog
+
+      <dialog
         ref={dialogRef}
-        onClose={() => setNoticeDialog(null)}
+        onClose={closeModal}
         onClick={(e) => {
           if (e.target === dialogRef.current) {
-            setNoticeDialog(null);
+            closeModal();
           }
         }}
         className="mdpub-dialog no-print"
         aria-labelledby="mdpub-dialog-title"
       >
-        {noticeDialog && (
+        {effectiveModal?.kind === "notice" && (
           <div className="p-5">
             <h2
               id="mdpub-dialog-title"
               className="text-sm font-semibold text-white"
             >
-              {noticeDialog.title}
+              {effectiveModal.title}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              {noticeDialog.message}
+              {effectiveModal.message}
             </p>
             <div className="mt-4 flex justify-end">
               <button
                 type="button"
-                onClick={() => setNoticeDialog(null)}
-                className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                onClick={closeModal}
+                className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500"
               >
                 閉じる
+              </button>
+            </div>
+          </div>
+        )}
+
+        {effectiveModal?.kind === "delete-doc" && (
+          <div className="p-5">
+            <h2
+              id="mdpub-dialog-title"
+              className="text-sm font-semibold text-red-300"
+            >
+              文書を削除しますか？
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              「<strong className="text-white">{effectiveModal.doc.title}</strong>」
+              およびこの文書に紐づくインライン画像（{effectiveModal.doc.assetCount}件 /{" "}
+              {formatBytes(effectiveModal.doc.assetsBytes)}）を削除します。
+              この操作は取り消せません。
+            </p>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              ※ 「先に .md を保存」には本文とインライン画像が含まれます（ロゴ・表紙等の共通画像は含まれません）。
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => void handleExportDocumentById(effectiveModal.doc.id)}
+                className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
+              >
+                先に .md を保存
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const id = effectiveModal.doc.id;
+                    closeModal();
+                    await deleteDocument(id);
+                  }}
+                  className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
+                >
+                  削除する
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {effectiveModal?.kind === "delete-all-docs" && (
+          <div className="p-5">
+            <h2
+              id="mdpub-dialog-title"
+              className="text-sm font-semibold text-red-300"
+            >
+              すべての文書を削除しますか？
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              登録されている {effectiveModal.count} 件の文書と独立画像（合計{" "}
+              {formatBytes(effectiveModal.totalBytes)}）をすべて削除します。
+              この操作は取り消せません。
+            </p>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              ※ UI設定（表示形式など）および共通画像（ロゴ・表紙・裏表紙）は保持されます。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  closeModal();
+                  await deleteAllDocuments();
+                }}
+                className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
+              >
+                すべて削除する
+              </button>
+            </div>
+          </div>
+        )}
+
+        {effectiveModal?.kind === "delete-shared-asset" && (
+          <div className="p-5">
+            <h2
+              id="mdpub-dialog-title"
+              className="text-sm font-semibold text-red-300"
+            >
+              共通画像を削除しますか？
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              「<strong className="text-white">{effectiveModal.asset.label}</strong>」を削除します。
+              削除すると、この画像を参照しているすべての文書でロゴ・表紙等が表示されなくなります。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const id = effectiveModal.asset.assetId;
+                  closeModal();
+                  await removeAsset(id);
+                }}
+                className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        )}
+
+        {effectiveModal?.kind === "delete-all-shared-assets" && (
+          <div className="p-5">
+            <h2
+              id="mdpub-dialog-title"
+              className="text-sm font-semibold text-red-300"
+            >
+              すべての共通画像を削除しますか？
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              登録されている {effectiveModal.count} 件の共通画像（ロゴ・表紙・裏表紙）をすべて削除します。
+              この操作は取り消せません。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  closeModal();
+                  await clearSharedAssets();
+                }}
+                className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
+              >
+                すべて削除する
               </button>
             </div>
           </div>
