@@ -10,6 +10,7 @@ import {
   FileCode2,
   FolderOpen,
   Loader2,
+  PanelLeft,
   Printer,
   RotateCcw,
   Settings,
@@ -29,6 +30,8 @@ interface TopToolbarProps {
   onImportFolder: (files: FileList) => void;
   onExportMarkdown: () => void;
   onPrint: () => void;
+  isSidebarOpen: boolean;
+  onToggleSidebar: () => void;
   isSettingsOpen: boolean;
   onToggleSettings: () => void;
 }
@@ -43,6 +46,8 @@ export function TopToolbar({
   onImportFolder,
   onExportMarkdown,
   onPrint,
+  isSidebarOpen,
+  onToggleSidebar,
   isSettingsOpen,
   onToggleSettings,
 }: TopToolbarProps) {
@@ -67,6 +72,21 @@ export function TopToolbar({
   return (
     <header className="no-print flex h-[52px] shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4 text-slate-100">
       <div className="flex min-w-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          aria-expanded={isSidebarOpen}
+          aria-label="文書一覧サイドバーを開閉"
+          title="文書一覧サイドバーを開閉"
+          className={`rounded-md border p-1.5 transition ${
+            isSidebarOpen
+              ? "border-sky-500/60 bg-sky-600/20 text-sky-300"
+              : "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
+          }`}
+        >
+          <PanelLeft className="h-4 w-4" />
+        </button>
+
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-600 text-white">
             <BookOpen className="h-4 w-4" />

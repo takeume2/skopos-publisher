@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node -e \"const fs=require('fs');if(fs.existsSync('.next/static'))fs.cpSync('.next/static','.next/standalone/.next/static',{recursive:true});if(fs.existsSync('public'))fs.cpSync('public','.next/standalone/public',{recursive:true});\" && node .next/standalone/server.js",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.3.1",
@@ -39,14 +41,19 @@
     "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.1.0",
     "@types/hast": "^3.0.4",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "autoprefixer": "^10.4.20",
+    "fake-indexeddb": "^6.0.0",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }
