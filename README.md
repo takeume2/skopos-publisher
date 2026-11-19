@@ -1,10 +1,10 @@
 # Skopos Publisher
 
-![skopos-logo](docs\images\skopos-social-preview-logo.png)
+![skopos-logo](docs/images/skopos-social-preview-logo.png)
 
 Markdown と YAML フロントマターから、Paged.js（CSS Paged Media）を用いてビジネス・技術・セキュリティ報告書品質の PDF を生成するクライアント完結型パブリッシング Web アプリケーションです。
 
-![overview](docs\overview.png)
+![overview](docs/overview.png)
 
 ## なぜ有用か（特徴とベネフィット）
 
@@ -16,7 +16,7 @@ Markdown と YAML フロントマターから、Paged.js（CSS Paged Media）を
 
 * **既存資産の活用**: ローカルの原稿フォルダ（`.md` ＋画像フォルダ一式）を読み込んで即座に組版・PDF 化でき、ロゴや表紙背景は共通ライブラリから複数文書へ使いまわせます。
 
-<img src="docs\pdf-output-sample.png" alt="pdf-output-sample" style="zoom:33%;" />
+<img src="docs/pdf-output-sample.png" alt="pdf-output-sample" style="zoom:33%;" />
 
 
 ### プリセットテーマ別のサンプルレポート
@@ -25,7 +25,7 @@ Markdown と YAML フロントマターから、Paged.js（CSS Paged Media）を
 
 | Business | Technical | Minimal |
 | ----- | ----- | ----- |
-| <img src="docs\sample-theme-business.png" alt="sample-theme-business" style="zoom: 33%;" /> | <img src="docs\sample-theme-technical.png" style="zoom:33%;" /> | <img src="docs\sample-theme-minimal.png" style="zoom:33%;" /> |
+| <img src="docs/sample-theme-business.png" alt="sample-theme-business" style="zoom: 33%;" /> | <img src="docs/sample-theme-technical.png" style="zoom:33%;" /> | <img src="docs/sample-theme-minimal.png" style="zoom:33%;" /> |
 
 ## 画面構成（UI）
 
