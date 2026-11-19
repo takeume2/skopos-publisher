@@ -2,7 +2,6 @@
 
 import React, { useRef } from "react";
 import {
-  BookOpen,
   CheckCircle2,
   Columns2,
   Download,
@@ -87,13 +86,12 @@ export function TopToolbar({
           <PanelLeft className="h-4 w-4" />
         </button>
 
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-600 text-white">
-            <BookOpen className="h-4 w-4" />
-          </div>
-          <span className="hidden text-sm font-semibold tracking-tight text-white sm:inline">
-            MD Publisher
-          </span>
+        <div className="flex items-center">
+          <img
+            src="/skopos-logo.svg"
+            alt="Skopos Publisher"
+            className="h-9 w-auto shrink-0"
+          />
         </div>
 
         <span className="text-slate-700">/</span>
