@@ -76,12 +76,3 @@ docker run -d -p 3000:3000 --name skopos-publisher skopos-publisher
 
 「PDF出力 / 印刷」から印刷ダイアログを開いたら、送信先に「PDF に保存」を選び、**「背景のグラフィック」を ON**、ブラウザ標準の「ヘッダーとフッター」を OFF に設定してください。
 
-## ヘルプ・フィードバック
-
-不具合の報告や機能改善の要望は、[GitHub Issues](https://www.google.com/search?q=https://github.com/takeume2/skopos-publisher/issues) までお寄せください。
-
-## メンテナ・コントリビュート
-
-* **メンテナ**: [takeume2](https://github.com/takeume2)
-
-* 改善提案や修正は Issue でのご相談、または Pull Request にてお送りください。詳細な設計資料や仕様書は別途ドキュメントとして管理しています。
