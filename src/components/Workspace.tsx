@@ -398,6 +398,7 @@ export function Workspace() {
           {viewMode !== "editor" && (
             <div className="print-preview-pane min-h-0 min-w-0 flex-1 overflow-hidden">
               <PagedPreviewPane
+                documentId={activeDocId}
                 markdown={markdown}
                 frontmatter={parsed.frontmatter}
                 assets={assets}
