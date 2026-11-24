@@ -10,6 +10,7 @@ import {
   parseMarkdownDocument,
   updateMarkdownFrontmatter,
 } from "@/lib/frontmatter";
+import { resolvePrintDocumentTitle } from "@/lib/print-title";
 import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
 import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
@@ -90,10 +91,12 @@ export function Workspace() {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(true);
   const [splitPercent, setSplitPercent] = useState<number>(46);
   const [modalState, setModalState] = useState<ModalState>(null);
+  const [importedFilename, setImportedFilename] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const isResizingRef = useRef<boolean>(false);
+  const previousDocumentTitleRef = useRef<string | null>(null);
 
   const effectiveModal: ModalState = storageError
     ? {
@@ -123,6 +126,21 @@ export function Workspace() {
   }, [clearStorageError, storageError]);
 
   const parsed = useMemo(() => parseMarkdownDocument(markdown), [markdown]);
+
+  const printTitle = useMemo(
+    () =>
+      resolvePrintDocumentTitle(markdown, {
+        fallbackFilename: importedFilename,
+      }),
+    [markdown, importedFilename]
+  );
+
+  const printTitleRef = useRef<string>(printTitle);
+  printTitleRef.current = printTitle;
+
+  useEffect(() => {
+    setImportedFilename(null);
+  }, [activeDocId]);
 
   const handleFrontmatterChange = useCallback(
     (nextFm: DocumentFrontmatter) => {
@@ -189,6 +207,7 @@ export function Workspace() {
 
       if (mdFiles.length > 0) {
         const mainMd = await mdFiles[0].text();
+        setImportedFilename(mdFiles[0].name);
         setMarkdown(mainMd);
       } else {
         setModalState({
@@ -245,9 +264,54 @@ export function Workspace() {
     [handleFrontmatterChange, parsed.frontmatter]
   );
 
-  const handlePrint = useCallback(() => {
-    window.print();
+  const applyPrintTitle = useCallback(() => {
+    if (previousDocumentTitleRef.current === null) {
+      previousDocumentTitleRef.current = document.title;
+    }
+    document.title = printTitleRef.current;
   }, []);
+
+  const restorePrintTitle = useCallback(() => {
+    if (previousDocumentTitleRef.current !== null) {
+      document.title = previousDocumentTitleRef.current;
+      previousDocumentTitleRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("beforeprint", applyPrintTitle);
+    window.addEventListener("afterprint", restorePrintTitle);
+
+    const mediaQuery =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("print")
+        : null;
+    const handlePrintMediaChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        applyPrintTitle();
+      } else {
+        restorePrintTitle();
+      }
+    };
+    mediaQuery?.addEventListener?.("change", handlePrintMediaChange);
+
+    return () => {
+      window.removeEventListener("beforeprint", applyPrintTitle);
+      window.removeEventListener("afterprint", restorePrintTitle);
+      mediaQuery?.removeEventListener?.("change", handlePrintMediaChange);
+      restorePrintTitle();
+    };
+  }, [applyPrintTitle, restorePrintTitle]);
+
+  const handlePrint = useCallback(() => {
+    applyPrintTitle();
+    try {
+      window.print();
+    } catch (err) {
+      restorePrintTitle();
+      console.error("Failed to open print dialog:", err);
+    }
+  }, [applyPrintTitle, restorePrintTitle]);
 
   const startResize = useCallback(() => {
     isResizingRef.current = true;
@@ -310,8 +374,14 @@ export function Workspace() {
         saveStatus={saveStatus}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
-        onResetSample={resetToSample}
-        onImportMarkdown={(content) => setMarkdown(content)}
+        onResetSample={() => {
+          setImportedFilename(null);
+          resetToSample();
+        }}
+        onImportMarkdown={(content, filename) => {
+          setImportedFilename(filename ?? null);
+          setMarkdown(content);
+        }}
         onImportFolder={handleImportFolder}
         onExportMarkdown={handleExportMarkdown}
         onPrint={handlePrint}
@@ -398,6 +468,7 @@ export function Workspace() {
           {viewMode !== "editor" && (
             <div className="print-preview-pane min-h-0 min-w-0 flex-1 overflow-hidden">
               <PagedPreviewPane
+                documentId={activeDocId}
                 markdown={markdown}
                 frontmatter={parsed.frontmatter}
                 assets={assets}
