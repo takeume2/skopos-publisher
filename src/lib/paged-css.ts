@@ -5,6 +5,7 @@ import type {
   PageOrientation,
   PageSize,
 } from "@/types/document";
+import { sanitizeImageUrl } from "./markdown";
 
 const PAGE_SIZE_METRICS: Record<PageSize, { width: string; height: string }> = {
   A4: { width: "210mm", height: "297mm" },
@@ -34,7 +35,9 @@ function escapeCssString(value: string): string {
   return value
     .replaceAll("\\", "\\\\")
     .replaceAll('"', '\\"')
-    .replaceAll("\n", " ");
+    .replaceAll("\r", " ")
+    .replaceAll("\n", " ")
+    .replace(/<\/style/gi, "<\\/style");
 }
 
 function escapeXml(value: string): string {
@@ -213,14 +216,24 @@ export function buildPagedMediaCss(
   const footerLeft = formatMarginContent(effectiveFooterLeft, fm);
   const footerRight = formatMarginContent(fm.footer_right, fm);
 
-  const logoSrc = imageAssets.logoUrl || (fm.logo.startsWith("asset:") ? "" : fm.logo);
+  const logoSrc = sanitizeImageUrl(
+    imageAssets.logoUrl || (fm.logo.startsWith("asset:") ? "" : fm.logo)
+  );
   const hasCoverBg = Boolean(
-    imageAssets.coverImageUrl ||
-      (fm.cover_image && !fm.cover_image.startsWith("asset:"))
+    sanitizeImageUrl(
+      imageAssets.coverImageUrl ||
+        (fm.cover_image && !fm.cover_image.startsWith("asset:")
+          ? fm.cover_image
+          : "")
+    )
   );
   const hasBackCoverBg = Boolean(
-    imageAssets.backCoverImageUrl ||
-      (fm.back_cover_image && !fm.back_cover_image.startsWith("asset:"))
+    sanitizeImageUrl(
+      imageAssets.backCoverImageUrl ||
+        (fm.back_cover_image && !fm.back_cover_image.startsWith("asset:")
+          ? fm.back_cover_image
+          : "")
+    )
   );
 
   const showHeaderLogo =
