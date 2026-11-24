@@ -17,10 +17,17 @@ import {
 } from "lucide-react";
 import { compileMarkdownToHtml, resolveAssetSrc } from "@/lib/markdown";
 import { buildPagedMediaCss } from "@/lib/paged-css";
+import {
+  capturePreviewScrollSnapshot,
+  detectCurrentPage,
+  escapeCssId,
+  restorePreviewScrollSnapshot,
+} from "@/lib/preview-scroll";
 import type { LayoutMode } from "@/hooks/useIndexedDbStorage";
 import type { DocumentFrontmatter } from "@/types/document";
 
 interface PagedPreviewPaneProps {
+  documentId?: string | null;
   markdown: string;
   frontmatter: DocumentFrontmatter;
   assets: Record<string, string>;
@@ -30,6 +37,12 @@ interface PagedPreviewPaneProps {
   onToggleMarginGuides: (value: boolean) => void;
   layoutMode: LayoutMode;
   onLayoutModeChange: (mode: LayoutMode) => void;
+}
+
+interface DestroyablePreviewer {
+  polisher?: {
+    destroy?: () => void;
+  };
 }
 
 function escapeCssContent(value: string): string {
@@ -49,11 +62,21 @@ async function yieldToMain(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
-function applyBodyPageNumbers(rootContainer: HTMLElement) {
+function applyBodyPageNumbers(
+  rootContainer: HTMLElement,
+  renderId: number
+): HTMLStyleElement | null {
   const pages = Array.from(
     rootContainer.querySelectorAll<HTMLElement>(".pagedjs_page")
   );
-  if (!pages.length) return;
+  if (!pages.length) return null;
+
+  const renderScopeEl =
+    rootContainer.querySelector<HTMLElement>(".pagedjs_pages") ??
+    (rootContainer.firstElementChild as HTMLElement | null);
+  if (renderScopeEl) {
+    renderScopeEl.setAttribute("data-paged-render", String(renderId));
+  }
 
   const bodyPageMap = new Map<HTMLElement, number>();
   let bodyPageCounter = 0;
@@ -78,7 +101,7 @@ function applyBodyPageNumbers(rootContainer: HTMLElement) {
     const targetId = numEl.getAttribute("data-target-id");
     if (!targetId) return;
     const targetEl = rootContainer.querySelector<HTMLElement>(
-      `#${CSS.escape(targetId)}`
+      `#${escapeCssId(targetId)}`
     );
     const targetPage = targetEl?.closest<HTMLElement>(".pagedjs_page");
     if (targetPage && bodyPageMap.has(targetPage)) {
@@ -90,6 +113,7 @@ function applyBodyPageNumbers(rootContainer: HTMLElement) {
   });
 
   const overrideRules: string[] = [];
+  const scopePrefix = renderScopeEl ? `[data-paged-render="${renderId}"] ` : "";
 
   bodyPageMap.forEach((pageNum, pageEl) => {
     if (!pageEl.id) return;
@@ -129,7 +153,7 @@ function applyBodyPageNumbers(rootContainer: HTMLElement) {
           );
           if (marginClass) {
             overrideRules.push(
-              `#${CSS.escape(pageEl.id)} .${marginClass} > .pagedjs_margin-content::after { content: "${escapeCssContent(replaced)}" !important; }`
+              `${scopePrefix}#${escapeCssId(pageEl.id)} .${marginClass} > .pagedjs_margin-content::after { content: "${escapeCssContent(replaced)}" !important; }`
             );
           }
         }
@@ -140,12 +164,25 @@ function applyBodyPageNumbers(rootContainer: HTMLElement) {
   if (overrideRules.length > 0) {
     const styleEl = document.createElement("style");
     styleEl.setAttribute("data-pagedjs-inserted-styles", "true");
+    styleEl.setAttribute("data-paged-render-override", String(renderId));
     styleEl.textContent = overrideRules.join("\n");
-    document.head.appendChild(styleEl);
+    return styleEl;
+  }
+
+  return null;
+}
+
+function destroyPreviewerSafely(previewer: DestroyablePreviewer | null) {
+  if (!previewer) return;
+  try {
+    previewer.polisher?.destroy?.();
+  } catch {
+    // ignore cleanup errors from partially initialized previewer
   }
 }
 
 export function PagedPreviewPane({
+  documentId,
   markdown,
   frontmatter,
   assets,
@@ -159,6 +196,9 @@ export function PagedPreviewPane({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previewHostRef = useRef<HTMLDivElement>(null);
   const measureHostRef = useRef<HTMLDivElement>(null);
+  const activePreviewerRef = useRef<DestroyablePreviewer | null>(null);
+  const activeOverrideStyleRef = useRef<HTMLStyleElement | null>(null);
+  const lastCommittedDocIdRef = useRef<string | null | undefined>(documentId);
   const renderIdRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMountedRef = useRef<boolean>(false);
@@ -181,6 +221,12 @@ export function PagedPreviewPane({
   }, []);
 
   const cleanupPagedStyles = useCallback(() => {
+    activeOverrideStyleRef.current?.remove();
+    activeOverrideStyleRef.current = null;
+
+    destroyPreviewerSafely(activePreviewerRef.current);
+    activePreviewerRef.current = null;
+
     const insertedStyles = document.querySelectorAll(
       "style[data-pagedjs-inserted-styles]"
     );
@@ -195,7 +241,7 @@ export function PagedPreviewPane({
   }, []);
 
   const renderDocument = useCallback(
-    async (sourceMarkdown: string) => {
+    async (sourceMarkdown: string, targetDocumentId?: string | null) => {
       const host = previewHostRef.current;
       const measureHost = measureHostRef.current;
       if (!host || !measureHost) return;
@@ -203,6 +249,20 @@ export function PagedPreviewPane({
       const currentRenderId = ++renderIdRef.current;
       setIsRendering(true);
       setRenderError(null);
+
+      let stagingEl: HTMLDivElement | null = null;
+      let previewer: DestroyablePreviewer | null = null;
+      let nextOverrideStyle: HTMLStyleElement | null = null;
+      let committed = false;
+
+      const discardStaging = () => {
+        nextOverrideStyle?.remove();
+        nextOverrideStyle = null;
+        destroyPreviewerSafely(previewer);
+        previewer = null;
+        stagingEl?.remove();
+        stagingEl = null;
+      };
 
       try {
         if (document.fonts?.ready) {
@@ -235,41 +295,89 @@ export function PagedPreviewPane({
 
         if (currentRenderId !== renderIdRef.current) return;
 
-        cleanupPagedStyles();
+        stagingEl = document.createElement("div");
+        stagingEl.setAttribute("data-paged-staging", String(currentRenderId));
+        measureHost.appendChild(stagingEl);
 
-        const previewer = new Previewer();
-        const flow = await previewer.preview(
+        const nextPreviewer = new Previewer();
+        previewer = nextPreviewer;
+
+        const flow = await nextPreviewer.preview(
           compiled.html,
           [{ "paged-media.css": cssText }],
-          measureHost
+          stagingEl
         );
 
         if (currentRenderId !== renderIdRef.current) {
-          cleanupPagedStyles();
+          discardStaging();
           return;
         }
 
         await yieldToMain();
         if (currentRenderId !== renderIdRef.current) {
-          cleanupPagedStyles();
+          discardStaging();
           return;
         }
 
-        applyBodyPageNumbers(measureHost);
+        nextOverrideStyle = applyBodyPageNumbers(stagingEl, currentRenderId);
 
-        while (measureHost.firstChild) {
-          host.appendChild(measureHost.firstChild);
+        const scrollContainer = scrollContainerRef.current;
+        const isDocumentChanged =
+          targetDocumentId !== undefined &&
+          lastCommittedDocIdRef.current !== undefined &&
+          lastCommittedDocIdRef.current !== targetDocumentId;
+
+        const scrollSnapshot =
+          !isDocumentChanged && scrollContainer
+            ? capturePreviewScrollSnapshot(scrollContainer, host)
+            : null;
+
+        // 同一同期処理内でスタイル・DOM・スクロール位置を一括差し替え（ちらつき防止）
+        activeOverrideStyleRef.current?.remove();
+        destroyPreviewerSafely(activePreviewerRef.current);
+
+        if (nextOverrideStyle) {
+          document.head.appendChild(nextOverrideStyle);
         }
+
+        activePreviewerRef.current = nextPreviewer;
+        activeOverrideStyleRef.current = nextOverrideStyle;
+        lastCommittedDocIdRef.current = targetDocumentId;
+
+        host.replaceChildren(...Array.from(stagingEl.childNodes));
+        stagingEl.remove();
+        stagingEl = null;
+        committed = true;
 
         const pageCount =
           flow?.total ?? host.querySelectorAll(".pagedjs_page").length;
         setTotalPages(pageCount);
-        setCurrentPage((prev) => {
-          const clamped = Math.min(Math.max(1, prev), Math.max(1, pageCount));
-          setPageInput(String(clamped));
-          return clamped;
-        });
+
+        let restoredPage = 1;
+        if (scrollContainer) {
+          if (isDocumentChanged) {
+            scrollContainer.scrollTop = 0;
+            scrollContainer.scrollLeft = 0;
+            restoredPage = 1;
+          } else if (scrollSnapshot) {
+            restoredPage = restorePreviewScrollSnapshot(
+              scrollContainer,
+              host,
+              scrollSnapshot
+            );
+          }
+        }
+
+        const clampedPage = Math.min(
+          Math.max(1, restoredPage),
+          Math.max(1, pageCount)
+        );
+        setCurrentPage(clampedPage);
+        setPageInput(String(clampedPage));
       } catch (err) {
+        if (!committed) {
+          discardStaging();
+        }
         if (currentRenderId !== renderIdRef.current) return;
         console.error("Paged.js rendering error:", err);
         setRenderError(
@@ -278,12 +386,15 @@ export function PagedPreviewPane({
             : "組版レンダリング中にエラーが発生しました。"
         );
       } finally {
+        if (!committed) {
+          discardStaging();
+        }
         if (currentRenderId === renderIdRef.current) {
           setIsRendering(false);
         }
       }
     },
-    [assets, cleanupPagedStyles]
+    [assets]
   );
 
   useEffect(() => {
@@ -294,14 +405,14 @@ export function PagedPreviewPane({
 
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
-      renderDocument(markdown);
+      renderDocument(markdown, documentId);
       return;
     }
 
     if (!autoUpdate) return;
 
     debounceTimerRef.current = setTimeout(() => {
-      renderDocument(markdown);
+      renderDocument(markdown, documentId);
     }, 800);
 
     return () => {
@@ -311,6 +422,7 @@ export function PagedPreviewPane({
       }
     };
   }, [
+    documentId,
     markdown,
     assets,
     autoUpdate,
@@ -339,8 +451,8 @@ export function PagedPreviewPane({
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
-    renderDocument(markdown);
-  }, [markdown, renderDocument]);
+    renderDocument(markdown, documentId);
+  }, [documentId, markdown, renderDocument]);
 
   const scrollToPage = useCallback((targetPage: number) => {
     const host = previewHostRef.current;
@@ -365,22 +477,7 @@ export function PagedPreviewPane({
     const pages = host.querySelectorAll<HTMLElement>(".pagedjs_page");
     if (!pages.length) return;
 
-    const containerRect = container.getBoundingClientRect();
-    const containerCenterY = containerRect.top + containerRect.height / 3;
-
-    let closestIndex = 0;
-    let closestDistance = Infinity;
-
-    pages.forEach((pageEl, idx) => {
-      const rect = pageEl.getBoundingClientRect();
-      const dist = Math.abs(rect.top - containerCenterY);
-      if (dist < closestDistance) {
-        closestDistance = dist;
-        closestIndex = idx;
-      }
-    });
-
-    const detected = closestIndex + 1;
+    const detected = detectCurrentPage(container, host);
     setCurrentPage(detected);
     setPageInput(String(detected));
   }, []);
