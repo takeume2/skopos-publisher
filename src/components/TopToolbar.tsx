@@ -25,7 +25,7 @@ interface TopToolbarProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   onResetSample: () => void;
-  onImportMarkdown: (content: string) => void;
+  onImportMarkdown: (content: string, filename?: string) => void;
   onImportFolder: (files: FileList) => void;
   onExportMarkdown: () => void;
   onPrint: () => void;
@@ -57,7 +57,7 @@ export function TopToolbar({
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await file.text();
-    onImportMarkdown(text);
+    onImportMarkdown(text, file.name);
     e.target.value = "";
   };
 
