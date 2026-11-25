@@ -6,6 +6,7 @@ import {
   BarChartHorizontal,
   Bold,
   BookMarked,
+  CheckCircle2,
   ClipboardList,
   Code2,
   FilePlus2,
@@ -110,7 +111,7 @@ export function FormatToolbar({
       icon: <Info className="h-3.5 w-3.5" />,
       snippet: {
         label: "NOTE",
-        before: "> [!NOTE]\n> ",
+        before: "> [!NOTE] ノート\n> ",
         placeholder: "補足事項を記述します。",
         block: true,
       },
@@ -120,7 +121,7 @@ export function FormatToolbar({
       icon: <AlertTriangle className="h-3.5 w-3.5" />,
       snippet: {
         label: "WARNING",
-        before: "> [!WARNING]\n> ",
+        before: "> [!WARNING] ワーニング\n> ",
         placeholder: "注意事項を記述します。",
         block: true,
       },
@@ -130,7 +131,7 @@ export function FormatToolbar({
       icon: <OctagonAlert className="h-3.5 w-3.5" />,
       snippet: {
         label: "CAUTION",
-        before: "> [!CAUTION] 重大な注意\n> ",
+        before: "> [!CAUTION] コーション\n> ",
         placeholder: "重大なリスクや禁止事項を記述します。",
         block: true,
       },
@@ -140,8 +141,18 @@ export function FormatToolbar({
       icon: <ClipboardList className="h-3.5 w-3.5" />,
       snippet: {
         label: "SUMMARY",
-        before: "> [!SUMMARY] 要約\n> ",
+        before: "> [!SUMMARY] サマリー\n> ",
         placeholder: "セクションの要点を記述します。",
+        block: true,
+      },
+    },
+    {
+      title: "コールアウト [!SUCCESS]",
+      icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+      snippet: {
+        label: "SUCCESS",
+        before: "> [!SUCCESS] サクセス\n> ",
+        placeholder: "適合・達成した基準や確認結果を記述します。",
         block: true,
       },
     },

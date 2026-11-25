@@ -779,6 +779,38 @@ function rehypeCodeBlockLabels() {
   };
 }
 
+const CALLOUT_MARKER_REGEX =
+  /^\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION|SUMMARY|ABSTRACT|SUCCESS)\](?=[ \t\r\n]|$)/i;
+
+function trimCalloutTitleNodes(
+  nodes: Element["children"]
+): Element["children"] {
+  const result = nodes.slice();
+
+  while (result.length > 0 && result[0].type === "text") {
+    const trimmed = result[0].value.replace(/^[ \t]+/, "");
+    if (!trimmed) {
+      result.shift();
+    } else {
+      result[0] = { type: "text", value: trimmed };
+      break;
+    }
+  }
+
+  while (result.length > 0 && result[result.length - 1].type === "text") {
+    const lastIdx = result.length - 1;
+    const trimmed = (result[lastIdx] as Text).value.replace(/[ \t]+$/, "");
+    if (!trimmed) {
+      result.pop();
+    } else {
+      result[lastIdx] = { type: "text", value: trimmed };
+      break;
+    }
+  }
+
+  return result;
+}
+
 function rehypeCallouts() {
   return (tree: Root) => {
     visit(tree, "element", (node: Element) => {
@@ -793,35 +825,82 @@ function rehypeCallouts() {
       const firstChild = firstP.children[0];
       if (firstChild.type !== "text") return;
 
-      const match = firstChild.value.match(
-        /^\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION|SUMMARY|ABSTRACT|SUCCESS)\](?:[ \t]+([^\r\n]+))?(?:\r?\n)?/i
-      );
-      if (!match) return;
+      const markerMatch = firstChild.value.match(CALLOUT_MARKER_REGEX);
+      if (!markerMatch) return;
 
-      const rawType = match[1].toLowerCase();
+      const rawType = markerMatch[1].toLowerCase();
       const calloutType: CalloutType =
         rawType === "abstract" ? "summary" : (rawType as CalloutType);
-      const customTitle = match[2]?.trim();
-      const titleText = customTitle || CALLOUT_LABELS[calloutType];
-      const remainder = firstChild.value.slice(match[0].length);
+      const afterMarker = firstChild.value.slice(markerMatch[0].length);
 
-      if (remainder.length > 0) {
-        (firstChild as Text).value = remainder;
-      } else {
-        firstP.children.shift();
-        if (
-          firstP.children.length > 0 &&
-          firstP.children[0].type === "element" &&
-          firstP.children[0].tagName === "br"
-        ) {
-          firstP.children.shift();
+      const remainingChildren: Element["children"] = [
+        ...(afterMarker ? [{ type: "text" as const, value: afterMarker }] : []),
+        ...firstP.children.slice(1),
+      ];
+
+      const rawTitleNodes: Element["children"] = [];
+      const bodyFirstPChildren: Element["children"] = [];
+      let inBody = false;
+
+      for (const child of remainingChildren) {
+        if (inBody) {
+          bodyFirstPChildren.push(child);
+          continue;
+        }
+
+        if (child.type === "element" && child.tagName === "br") {
+          inBody = true;
+          continue;
+        }
+
+        if (child.type === "text") {
+          const nlMatch = child.value.match(/\r?\n/);
+          if (nlMatch && typeof nlMatch.index === "number") {
+            const beforeNl = child.value.slice(0, nlMatch.index);
+            const afterNl = child.value.slice(
+              nlMatch.index + nlMatch[0].length
+            );
+            if (beforeNl) {
+              rawTitleNodes.push({ type: "text", value: beforeNl });
+            }
+            if (afterNl) {
+              bodyFirstPChildren.push({ type: "text", value: afterNl });
+            }
+            inBody = true;
+            continue;
+          }
+        }
+
+        rawTitleNodes.push(child);
+      }
+
+      if (
+        bodyFirstPChildren.length > 0 &&
+        bodyFirstPChildren[0].type === "text"
+      ) {
+        const cleaned = bodyFirstPChildren[0].value.replace(/^\r?\n/, "");
+        if (cleaned) {
+          bodyFirstPChildren[0] = { type: "text", value: cleaned };
+        } else {
+          bodyFirstPChildren.shift();
         }
       }
+
+      firstP.children = bodyFirstPChildren;
+
+      const trimmedTitleNodes = trimCalloutTitleNodes(rawTitleNodes);
+      const titleChildren: Element["children"] =
+        trimmedTitleNodes.length > 0
+          ? trimmedTitleNodes
+          : [{ type: "text", value: CALLOUT_LABELS[calloutType] }];
 
       const bodyChildren = node.children.filter((child) => {
         if (child === firstP && firstP.children.length === 0) return false;
         return true;
       });
+      const hasBodyContent = bodyChildren.some(
+        (child) => child.type !== "text" || child.value.trim().length > 0
+      );
 
       node.tagName = "div";
       node.properties = {
@@ -832,14 +911,18 @@ function rehypeCallouts() {
           type: "element",
           tagName: "div",
           properties: { className: ["callout-title"] },
-          children: [{ type: "text", value: titleText }],
+          children: titleChildren,
         },
-        {
-          type: "element",
-          tagName: "div",
-          properties: { className: ["callout-body"] },
-          children: bodyChildren,
-        },
+        ...(hasBodyContent
+          ? [
+              {
+                type: "element" as const,
+                tagName: "div",
+                properties: { className: ["callout-body"] },
+                children: bodyChildren,
+              },
+            ]
+          : []),
       ];
     });
   };
