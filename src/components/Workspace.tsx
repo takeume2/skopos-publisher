@@ -11,11 +11,14 @@ import {
   updateMarkdownFrontmatter,
 } from "@/lib/frontmatter";
 import {
+  buildExportFilename,
+  buildExportFilenameBasename,
+} from "@/lib/export-filename";
+import {
   extractOutlineHeadings,
   findActiveOutlineHeadingId,
   type OutlineHeading,
 } from "@/lib/outline";
-import { resolvePrintDocumentTitle } from "@/lib/print-title";
 import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
 import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
@@ -55,13 +58,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-function downloadMarkdownFile(title: string, content: string) {
+function downloadMarkdownFile(filename: string, content: string) {
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const safeTitle = (title || "document").replace(/[\\/:*?"<>|]/g, "_").trim();
   a.href = url;
-  a.download = `${safeTitle || "document"}.md`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -143,16 +145,17 @@ export function Workspace() {
     [outlineHeadings, cursorLine]
   );
 
-  const printTitle = useMemo(
+  const exportBasename = useMemo(
     () =>
-      resolvePrintDocumentTitle(markdown, {
+      buildExportFilenameBasename(markdown, {
+        template: prefs.filenameTemplate,
         fallbackFilename: importedFilename,
       }),
-    [markdown, importedFilename]
+    [markdown, prefs.filenameTemplate, importedFilename]
   );
 
-  const printTitleRef = useRef<string>(printTitle);
-  printTitleRef.current = printTitle;
+  const printTitleRef = useRef<string>(exportBasename);
+  printTitleRef.current = exportBasename;
 
   useEffect(() => {
     setImportedFilename(null);
@@ -254,10 +257,19 @@ export function Workspace() {
     async (docId: string) => {
       const exported = await getExpandedMarkdownForDoc(docId);
       if (exported) {
-        downloadMarkdownFile(exported.title, exported.content);
+        const filename = buildExportFilename(exported.content, "md", {
+          template: prefs.filenameTemplate,
+          fallbackFilename: docId === activeDocId ? importedFilename : null,
+        });
+        downloadMarkdownFile(filename, exported.content);
       }
     },
-    [getExpandedMarkdownForDoc]
+    [
+      activeDocId,
+      getExpandedMarkdownForDoc,
+      importedFilename,
+      prefs.filenameTemplate,
+    ]
   );
 
   const handleExportMarkdown = useCallback(() => {
@@ -526,6 +538,14 @@ export function Workspace() {
           frontmatter={parsed.frontmatter}
           assets={assets}
           sharedAssets={sharedAssetList}
+          filenameTemplate={prefs.filenameTemplate}
+          onChangeFilenameTemplate={(nextTemplate) =>
+            void updatePrefs({ filenameTemplate: nextTemplate })
+          }
+          exportFilenamePreview={{
+            pdf: `${exportBasename}.pdf`,
+            md: `${exportBasename}.md`,
+          }}
           onChangeFrontmatter={handleFrontmatterChange}
           onSaveAsset={saveAsset}
           onRemoveAsset={removeAsset}

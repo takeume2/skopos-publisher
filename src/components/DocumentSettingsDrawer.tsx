@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
+  Copy,
+  FileDown,
   ImagePlus,
   LayoutTemplate,
   Palette,
@@ -14,6 +17,12 @@ import {
   Type,
   X,
 } from "lucide-react";
+import {
+  DEFAULT_FILENAME_TEMPLATE,
+  FILENAME_TEMPLATE_PRESETS,
+  FILENAME_VARIABLE_CHIPS,
+  resolveFilenamePresetId,
+} from "@/lib/export-filename";
 import { resolveAssetSrc } from "@/lib/markdown";
 import type { SharedAssetSummary } from "@/hooks/useIndexedDbStorage";
 import type {
@@ -35,6 +44,12 @@ interface DocumentSettingsDrawerProps {
   frontmatter: DocumentFrontmatter;
   assets: Record<string, string>;
   sharedAssets?: SharedAssetSummary[];
+  filenameTemplate?: string;
+  onChangeFilenameTemplate?: (nextTemplate: string) => void;
+  exportFilenamePreview?: {
+    pdf: string;
+    md: string;
+  };
   onChangeFrontmatter: (next: DocumentFrontmatter) => void;
   onSaveAsset: (assetId: string, dataUrl: string, label?: string) => Promise<void>;
   onRemoveAsset: (assetId: string) => Promise<void>;
@@ -231,13 +246,17 @@ export function DocumentSettingsDrawer({
   frontmatter,
   assets,
   sharedAssets = [],
+  filenameTemplate = DEFAULT_FILENAME_TEMPLATE,
+  onChangeFilenameTemplate,
+  exportFilenamePreview,
   onChangeFrontmatter,
   onSaveAsset,
 }: DocumentSettingsDrawerProps) {
   const [openSections, setOpenSections] = useState({
     basic: true,
-    theme: true,
     confidential: true,
+    filename: true,
+    theme: true,
     structure: true,
     headerFooter: true,
   });
@@ -245,8 +264,51 @@ export function DocumentSettingsDrawer({
   const [focusedField, setFocusedField] = useState<
     "header_left" | "header_right" | "footer_left" | "footer_right"
   >("header_left");
+  const [copiedTarget, setCopiedTarget] = useState<"pdf" | "md" | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   if (!isOpen) return null;
+
+  const activeFilenamePreset = resolveFilenamePresetId(filenameTemplate);
+
+  const handleInsertFilenameChip = (chip: string) => {
+    if (!onChangeFilenameTemplate) return;
+    const current = filenameTemplate;
+    if (!current.trim()) {
+      onChangeFilenameTemplate(chip);
+      return;
+    }
+    const separator = /[_\-.\s]$/.test(current) ? "" : "_";
+    onChangeFilenameTemplate(`${current}${separator}${chip}`);
+  };
+
+  const handleCopyFilename = async (kind: "pdf" | "md", value: string) => {
+    if (!value) return;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      }
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+      }
+      setCopiedTarget(kind);
+      copyTimerRef.current = setTimeout(() => {
+        setCopiedTarget(null);
+        copyTimerRef.current = null;
+      }, 1800);
+    } catch {
+      // Clipboard API unavailable or denied
+    }
+  };
 
   const updateField = <K extends keyof DocumentFrontmatter>(
     key: K,
@@ -549,7 +611,174 @@ export function DocumentSettingsDrawer({
           )}
         </section>
 
-        {/* 3. デザインテーマ & カスタマイズ */}
+        {/* 3. 出力ファイル名規則・ガイド */}
+        <section>
+          <button
+            type="button"
+            onClick={() => toggleSection("filename")}
+            aria-expanded={openSections.filename}
+            className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
+          >
+            <span className="flex items-center gap-2">
+              <FileDown className="h-3.5 w-3.5 text-sky-400" />
+              出力ファイル名
+            </span>
+            {openSections.filename ? (
+              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+            )}
+          </button>
+
+          {openSections.filename && (
+            <div className="space-y-3 px-4 pb-4 pt-1">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400">
+                    命名規則プリセット
+                  </span>
+                  {filenameTemplate !== DEFAULT_FILENAME_TEMPLATE &&
+                    onChangeFilenameTemplate && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onChangeFilenameTemplate(DEFAULT_FILENAME_TEMPLATE)
+                        }
+                        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-800 hover:text-white"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        <span>標準に戻す</span>
+                      </button>
+                    )}
+                </div>
+                <div className="space-y-1">
+                  {FILENAME_TEMPLATE_PRESETS.map((preset) => {
+                    const active = activeFilenamePreset === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() =>
+                          onChangeFilenameTemplate?.(preset.template)
+                        }
+                        className={`flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-left text-[11px] transition ${
+                          active
+                            ? "border-sky-500/70 bg-sky-500/15 font-medium text-sky-200"
+                            : "border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700 hover:text-white"
+                        }`}
+                      >
+                        <span>{preset.label}</span>
+                        <span className="font-mono text-[9px] text-slate-400">
+                          {preset.template}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="export-filename-template-input"
+                  className="mb-1 flex items-center justify-between text-[11px] text-slate-400"
+                >
+                  <span>テンプレート</span>
+                  {activeFilenamePreset === "custom" && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] text-sky-300">
+                      カスタム
+                    </span>
+                  )}
+                </label>
+                <input
+                  id="export-filename-template-input"
+                  type="text"
+                  value={filenameTemplate}
+                  placeholder={DEFAULT_FILENAME_TEMPLATE}
+                  onChange={(e) => onChangeFilenameTemplate?.(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-[11px] text-white focus:border-sky-500 focus:outline-none"
+                />
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {FILENAME_VARIABLE_CHIPS.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => handleInsertFilenameChip(chip)}
+                      className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300 hover:bg-slate-700"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {exportFilenamePreview && (
+                <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/70 p-2.5">
+                  <div className="text-[10px] font-semibold text-slate-300">
+                    生成ファイル名プレビュー
+                  </div>
+                  {(
+                    [
+                      {
+                        kind: "pdf" as const,
+                        label: "PDF",
+                        value: exportFilenamePreview.pdf,
+                      },
+                      {
+                        kind: "md" as const,
+                        label: "MD",
+                        value: exportFilenamePreview.md,
+                      },
+                    ] as const
+                  ).map((item) => {
+                    const isCopied = copiedTarget === item.kind;
+                    return (
+                      <div
+                        key={item.kind}
+                        className="flex items-center gap-1.5 rounded border border-slate-800/90 bg-slate-900/70 px-2 py-1"
+                      >
+                        <span className="shrink-0 rounded bg-slate-800 px-1 py-0.5 font-mono text-[9px] font-semibold text-slate-300">
+                          {item.label}
+                        </span>
+                        <span
+                          title={item.value}
+                          data-testid={`export-filename-preview-${item.kind}`}
+                          className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-200"
+                        >
+                          {item.value}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleCopyFilename(item.kind, item.value)
+                          }
+                          aria-label={`${item.label}ファイル名をコピー`}
+                          title={`${item.label}ファイル名をコピー`}
+                          className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                        >
+                          {isCopied ? (
+                            <Check className="h-3 w-3 text-emerald-400" />
+                          ) : (
+                            <Copy className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <p className="pt-0.5 text-[10px] leading-relaxed text-slate-400">
+                    PDF出力時の初期ファイル名・.md保存時のファイル名へ自動適用されます（機密表示なし時は{" "}
+                    <code className="font-mono text-slate-300">
+                      {"{confidential}"}
+                    </code>{" "}
+                    を自動省略）。
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 4. デザインテーマ & カスタマイズ */}
         <section>
           <button
             type="button"

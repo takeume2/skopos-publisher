@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { delMany, get, getMany, keys, set } from "idb-keyval";
+import { DEFAULT_FILENAME_TEMPLATE } from "@/lib/export-filename";
 import { parseMarkdownDocument } from "@/lib/frontmatter";
 import { resolveAssetSrc } from "@/lib/markdown";
 import { SAMPLE_MARKDOWN } from "@/lib/sample-markdown";
@@ -43,6 +44,7 @@ export interface UiPreferences {
   showMarginGuides: boolean;
   layoutMode: LayoutMode;
   isSidebarOpen: boolean;
+  filenameTemplate: string;
 }
 
 export interface StoredDocument {
@@ -75,6 +77,7 @@ const DEFAULT_PREFS: UiPreferences = {
   showMarginGuides: false,
   layoutMode: "single",
   isSidebarOpen: true,
+  filenameTemplate: DEFAULT_FILENAME_TEMPLATE,
 };
 
 function createDocId(): string {

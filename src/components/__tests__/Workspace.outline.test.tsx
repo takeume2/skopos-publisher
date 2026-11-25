@@ -42,6 +42,7 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
         showMarginGuides: false,
         layoutMode: "single" as const,
         isSidebarOpen: true,
+        filenameTemplate: "{date}_{title}_{confidential}",
       },
       updatePrefs: vi.fn(),
       resetToSample: vi.fn(),
