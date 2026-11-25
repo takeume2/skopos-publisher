@@ -29,37 +29,174 @@ type CalloutType =
   | "success";
 
 
-const SANITIZE_SCHEMA = {
+const ALLOWED_TAG_NAMES = (defaultSchema.tagNames || []).filter(
+  (tag) => tag !== "source" && tag !== "picture"
+);
+
+const SANITIZE_SCHEMA: NonNullable<Parameters<typeof rehypeSanitize>[0]> = {
   ...defaultSchema,
-  clobberPrefix: "",
-  tagNames: [...(defaultSchema.tagNames || []), "div", "span"],
+  clobberPrefix: "user-content-",
+  tagNames: Array.from(new Set([...ALLOWED_TAG_NAMES, "div", "span"])),
   attributes: {
     ...defaultSchema.attributes,
-    "*": [
-      ...((defaultSchema.attributes?.["*"] as string[]) || []),
-      "className",
-      "id",
-    ],
+    "*": (defaultSchema.attributes?.["*"] || []).filter(
+      (attr) => attr !== "className" && attr !== "style"
+    ),
     div: [
-      ...((defaultSchema.attributes?.div as string[]) || []),
-      "className",
-      "dataChapterMarker",
+      ...(defaultSchema.attributes?.div || []),
+      ["className", "page-break"],
+      ["dataChapterMarker", "start", "end"],
     ],
     span: [
-      ...((defaultSchema.attributes?.span as string[]) || []),
-      "className",
-      "dataHl",
+      ...(defaultSchema.attributes?.span || []),
+      ["dataHl", /^[a-zA-Z0-9_-]+$/],
     ],
     img: ["src", "alt", "title", "width", "height", "loading", "decoding"],
-    th: [...((defaultSchema.attributes?.th as string[]) || []), "align", "style"],
-    td: [...((defaultSchema.attributes?.td as string[]) || []), "align", "style"],
-    code: ["className"],
+    th: [...(defaultSchema.attributes?.th || []), "align"],
+    td: [...(defaultSchema.attributes?.td || []), "align"],
+    code: [
+      [
+        "className",
+        /^language-[a-zA-Z0-9_.:/-]+$/,
+        "math-inline",
+        "math-display",
+      ],
+    ],
   },
   protocols: {
     ...defaultSchema.protocols,
+    href: ["http", "https", "mailto"],
     src: ["http", "https", "data", "asset", "rel"],
   },
 };
+
+const SAFE_RASTER_DATA_URI_REGEX =
+  /^data:image\/(?:png|jpe?g|gif|webp|bmp|avif|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/=_\-\s]+$/i;
+const SVG_DATA_URI_REGEX =
+  /^data:image\/svg\+xml(?:\s*;\s*charset=[a-zA-Z0-9._-]+)?(?:\s*;\s*(base64))?,([\s\S]*)$/i;
+const DANGEROUS_SVG_PATTERN =
+  /<\s*(?:script|foreignObject|iframe|object|embed|applet|meta|link|base|animate|set|handler)\b|\bon[a-z]+\s*=|(?:javascript|vbscript|data\s*:\s*text\/html)\s*:|@import\b|expression\s*\(/i;
+
+function decodeHtmlNumericEntities(input: string): string {
+  return input
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : "";
+    })
+    .replace(/&#([0-9]+);?/g, (_, dec: string) => {
+      const code = Number.parseInt(dec, 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : "";
+    });
+}
+
+function decodeBase64Utf8(encoded: string): string | null {
+  try {
+    const cleaned = encoded.replace(/\s+/g, "");
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(cleaned, "base64").toString("utf8");
+    }
+    if (typeof atob === "function") {
+      return atob(cleaned);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function isSafeSvgDataUri(uri: string): boolean {
+  const match = uri.match(SVG_DATA_URI_REGEX);
+  if (!match) return false;
+
+  const isBase64 = Boolean(match[1]);
+  const rawPayload = match[2] ?? "";
+
+  let decoded: string | null = null;
+  if (isBase64) {
+    decoded = decodeBase64Utf8(rawPayload);
+  } else {
+    try {
+      decoded = decodeURIComponent(rawPayload);
+    } catch {
+      return false;
+    }
+  }
+
+  if (!decoded) return false;
+  const normalized = decodeHtmlNumericEntities(decoded);
+  return !DANGEROUS_SVG_PATTERN.test(normalized);
+}
+
+export function sanitizeImageUrl(
+  url: string,
+  options: { allowRelativePath?: boolean } = {}
+): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (/[\u0000-\u001F\u007F]/.test(trimmed)) return "";
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return trimmed;
+      }
+    } catch {
+      return "";
+    }
+    return "";
+  }
+
+  if (/^data:/i.test(trimmed)) {
+    if (SAFE_RASTER_DATA_URI_REGEX.test(trimmed)) {
+      return trimmed;
+    }
+    if (isSafeSvgDataUri(trimmed)) {
+      return trimmed;
+    }
+    return "";
+  }
+
+  if (
+    options.allowRelativePath &&
+    !trimmed.startsWith("//") &&
+    !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)
+  ) {
+    return trimmed;
+  }
+
+  return "";
+}
+
+function rehypeNormalizeClobberPrefix() {
+  return (tree: Root) => {
+    const doublePrefix = "user-content-user-content-";
+    visit(tree, "element", (node: Element) => {
+      if (!node.properties) return;
+
+      for (const key of ["id", "name"] as const) {
+        const val = node.properties[key];
+        if (typeof val === "string" && val.startsWith(doublePrefix)) {
+          node.properties[key] = `user-content-${val.slice(doublePrefix.length)}`;
+        }
+      }
+
+      const props = node.properties as Record<string, unknown>;
+      for (const key of ["ariaDescribedBy", "ariaLabelledBy"] as const) {
+        const val = props[key];
+        if (typeof val === "string" && val.startsWith(doublePrefix)) {
+          props[key] = `user-content-${val.slice(doublePrefix.length)}`;
+        } else if (Array.isArray(val)) {
+          props[key] = val.map((item) =>
+            typeof item === "string" && item.startsWith(doublePrefix)
+              ? `user-content-${item.slice(doublePrefix.length)}`
+              : item
+          );
+        }
+      }
+    });
+  };
+}
 
 const CALLOUT_LABELS: Record<CalloutType, string> = {
   note: "NOTE",
@@ -487,25 +624,26 @@ function rehypeBadges() {
 
 export function resolveAssetSrc(
   src: string,
-  assets: Record<string, string>
+  assets: Record<string, string>,
+  options: { allowRelativePath?: boolean } = {}
 ): string {
-  if (!src) return "";
+  const trimmed = src.trim();
+  if (!trimmed) return "";
   if (
-    src.startsWith("http://") ||
-    src.startsWith("https://") ||
-    src.startsWith("data:")
+    /^https?:\/\//i.test(trimmed) ||
+    /^data:/i.test(trimmed)
   ) {
-    return src;
+    return sanitizeImageUrl(trimmed);
   }
-  if (src.startsWith("asset:") && assets[src]) {
-    return assets[src];
+  if (trimmed.startsWith("asset:")) {
+    return assets[trimmed] ? sanitizeImageUrl(assets[trimmed]) : "";
   }
 
-  let decoded = src;
+  let decoded = trimmed;
   try {
-    decoded = decodeURIComponent(src);
+    decoded = decodeURIComponent(trimmed);
   } catch {
-    decoded = src;
+    decoded = trimmed;
   }
 
   const normalized = decoded
@@ -514,7 +652,7 @@ export function resolveAssetSrc(
     .replace(/^\/+/, "");
 
   if (assets[`rel:${normalized}`]) {
-    return assets[`rel:${normalized}`];
+    return sanitizeImageUrl(assets[`rel:${normalized}`]);
   }
 
   const fileName = normalized.split("/").pop() || normalized;
@@ -522,11 +660,11 @@ export function resolveAssetSrc(
     if (!key.startsWith("rel:")) continue;
     const relPath = key.slice(4);
     if (relPath === fileName || relPath.endsWith(`/${fileName}`)) {
-      return val;
+      return sanitizeImageUrl(val);
     }
   }
 
-  return src;
+  return sanitizeImageUrl(trimmed, options);
 }
 
 function rehypeResolveAssets(assets: Record<string, string>) {
@@ -535,8 +673,12 @@ function rehypeResolveAssets(assets: Record<string, string>) {
       if (node.tagName !== "img") return;
       const src = node.properties?.src;
       if (typeof src !== "string") return;
-      const resolved = resolveAssetSrc(src, assets);
-      if (resolved && resolved !== src) {
+      const resolved = resolveAssetSrc(src, assets, { allowRelativePath: true });
+      if (!resolved) {
+        const nextProps = { ...node.properties };
+        delete nextProps.src;
+        node.properties = nextProps;
+      } else if (resolved !== src) {
         node.properties = {
           ...node.properties,
           src: resolved,
@@ -920,6 +1062,7 @@ export async function compileMarkdownToHtml(
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeSanitize, SANITIZE_SCHEMA)
+    .use(rehypeNormalizeClobberPrefix)
     .use(rehypeSlug)
     .use(rehypeSafeHeadingIds)
     .use(createTocCollector(frontmatter.toc_depth, tocEntries))
@@ -929,7 +1072,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeBadges)
     .use(rehypeHeadingHighlights)
     .use(rehypeCodeBlockLabels)
-    .use(rehypeKatex)
+    .use(rehypeKatex, { trust: false, strict: false, maxExpand: 1000 })
     .use(rehypeHighlight)
     .use(rehypeStringify);
 

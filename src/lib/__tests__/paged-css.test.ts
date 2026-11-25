@@ -26,4 +26,17 @@ describe("buildPagedMediaCss", () => {
     expect(css).toContain("word-break: break-all;");
     expect(css).toContain(".doc-root.heading-hl-solid");
   });
+
+  it("rejects dangerous logo URLs and escapes closing style tags in margin content", () => {
+    const css = buildPagedMediaCss({
+      ...DEFAULT_FRONTMATTER,
+      logo: 'javascript:alert(1)"); } </style><script>alert(1)</script>',
+      logo_position: "cover-and-header",
+      header_left: 'Title </style><script>alert(1)</script>',
+    });
+
+    expect(css).not.toContain("javascript:");
+    expect(css).not.toContain("</style>");
+    expect(css).toContain("@top-center { content: none; }");
+  });
 });
