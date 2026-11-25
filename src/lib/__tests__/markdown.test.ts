@@ -176,4 +176,62 @@ back_cover: false
     expect(compiled.html).toContain('<section class="doc-chapter-cover">');
     expect(compiled.html).not.toContain("doc-hl-custom");
   });
+
+  it("renders colorbar directives as accessible Flexbox figures while ignoring code blocks and sanitizing malicious input", async () => {
+    const md = `---
+title: "サマリーレポート"
+cover: false
+toc: false
+back_cover: false
+---
+
+<!-- colorbar: Critical=10, High=20, Medium=30, Low=40 -->
+
+インラインコード \`<!-- colorbar: A=1, B=2 -->\` は変換しない。
+
+\`\`\`md
+<!-- colorbar: CodeBlock=100 -->
+\`\`\`
+
+<!-- colorbar: <script>alert(1)</script>=10(red;expression(1)), Safe=10 -->
+<!-- colorbar: " onmouseover="alert(1)=5, Clean=5 -->
+<div data-colorbar="Injected=5, Other=5" onclick="alert(1)" style="position:fixed"></div>
+<!-- colorbar: ZeroA=0, ZeroB=0 -->
+<!-- colorbar: invalid-only -->
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    // 通常のカラーバー描画
+    expect(compiled.html).toContain('<figure class="doc-colorbar"');
+    expect(compiled.html).toContain('class="doc-colorbar-track"');
+    expect(compiled.html).toContain("width: 10%; background-color: #9f1239;");
+    expect(compiled.html).toContain("width: 20%; background-color: #ea580c;");
+    expect(compiled.html).toContain("width: 30%; background-color: #d97706;");
+    expect(compiled.html).toContain("width: 40%; background-color: #16a34a;");
+    expect(compiled.html).toContain("計 100");
+    expect(compiled.html).toContain("Critical");
+    expect(compiled.html).toContain("10 (10%)");
+
+    // コードブロック・インラインコード内は非変換
+    expect(compiled.html).toContain(
+      "<code>&#x3C;!-- colorbar: A=1, B=2 --></code>"
+    );
+    expect(compiled.html).toContain("CodeBlock=100");
+    expect(compiled.html).not.toContain('aria-label="CodeBlock');
+
+    // XSS・属性インジェクションの抑止（凡例テキストはエスケープされ、属性脱出・イベントハンドラは不可）
+    expect(compiled.html).toContain(
+      '<span class="doc-colorbar-legend-label">&#x3C;script>alert(1)&#x3C;/script></span>'
+    );
+    expect(compiled.html).toContain("&#x22; onmouseover=&#x22;alert(1)");
+    expect(compiled.html).not.toContain(' onmouseover="alert(1)"');
+    expect(compiled.html).not.toContain("expression(1)");
+    expect(compiled.html).not.toContain("onclick");
+    expect(compiled.html).not.toContain("position:fixed");
+
+    // 全項目 0 件と不正記法の安全な処理
+    expect(compiled.html).toContain('class="doc-colorbar-empty"');
+    expect(compiled.html).not.toContain("NaN%");
+    expect(compiled.html).not.toContain("data-colorbar");
+  });
 });
