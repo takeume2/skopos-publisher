@@ -466,4 +466,53 @@ back_cover: false
     expect(compiled.html).not.toContain("position:fixed");
     expect(compiled.html).not.toContain("data-chart-spec");
   });
+
+  it("preserves pagebreak and newpage directives literally inside callouts, inline code, and code blocks (#41)", async () => {
+    const md = `---
+title: "ディレクティブ保護検証"
+cover: false
+toc: false
+back_cover: false
+---
+
+> [!TIP]
+> \`<!-- pagebreak -->\` または \`\\newpage\` を記述することで、任意の箇所で強制改ページを実行できます。
+
+> [!NOTE]
+> <!-- pagebreak -->
+> コールアウト内の生コメントも改ページにしない。
+
+\`\`\`md
+<!-- pagebreak -->
+\\newpage
+<!-- chapter -->
+<!-- hl: info -->
+\`\`\`
+
+通常本文の直後
+
+\\newpage
+
+次のページ
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    // コールアウト内のインラインコードはリテラル表示され、コールアウトが壊れないこと
+    expect(compiled.html).toContain(
+      '<div class="callout callout-tip"><div class="callout-title">TIP</div><div class="callout-body">\n<p><code>&#x3C;!-- pagebreak --></code> または <code>\\newpage</code> を記述することで、任意の箇所で強制改ページを実行できます。</p>\n</div></div>'
+    );
+
+    // コールアウト内の生 <!-- pagebreak --> も改ページに変換されずコールアウト構造を維持
+    expect(compiled.html).toContain("コールアウト内の生コメントも改ページにしない。");
+
+    // コードブロック内のディレクティブもリテラルとして保持
+    expect(compiled.html).toContain("&#x3C;!-- pagebreak -->");
+    expect(compiled.html).toContain("\\newpage");
+    expect(compiled.html).toContain("&#x3C;!-- chapter -->");
+    expect(compiled.html).toContain("&#x3C;!-- hl: info -->");
+
+    // 通常の \newpage はちょうど 1 回だけ <div class="page-break"></div> になること
+    const pageBreakMatches = compiled.html.match(/<div class="page-break"><\/div>/g) || [];
+    expect(pageBreakMatches).toHaveLength(1);
+  });
 });

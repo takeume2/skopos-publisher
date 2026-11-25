@@ -276,22 +276,124 @@ function getNodeText(node: Element | Parent): string {
   return out;
 }
 
-function preprocessDirectives(markdownBody: string): string {
-  return markdownBody
-    .replace(/<!--\s*pagebreak\s*-->/gi, '\n<div class="page-break"></div>\n')
-    .replace(/^[ \t]*\\newpage[ \t]*$/gm, '\n<div class="page-break"></div>\n')
-    .replace(
-      /<!--\s*chapter\s*-->/gi,
-      '\n<div data-chapter-marker="start"></div>\n'
-    )
-    .replace(
-      /<!--\s*\/chapter\s*-->/gi,
-      '\n<div data-chapter-marker="end"></div>\n'
-    )
-    .replace(
-      /<!--\s*hl:\s*([a-zA-Z0-9_-]+)\s*-->/gi,
-      '<span data-hl="$1"></span>'
-    );
+type MdastLikeNode = {
+  type: string;
+  value?: string;
+  children?: MdastLikeNode[];
+};
+
+const PAGEBREAK_COMMENT_REGEX = /<!--\s*pagebreak\s*-->/gi;
+const CHAPTER_START_COMMENT_REGEX = /<!--\s*chapter\s*-->/gi;
+const CHAPTER_END_COMMENT_REGEX = /<!--\s*\/chapter\s*-->/gi;
+const HL_COMMENT_REGEX = /<!--\s*hl:\s*([a-zA-Z0-9_-]+)\s*-->/gi;
+const NEWPAGE_LINE_REGEX = /^[ \t]*\\newpage[ \t]*$/;
+
+function transformMdastDirectives(
+  node: MdastLikeNode,
+  insideBlockquote: boolean
+) {
+  if (!Array.isArray(node.children)) return;
+
+  const nextInsideBlockquote = insideBlockquote || node.type === "blockquote";
+
+  for (let i = 0; i < node.children.length; i++) {
+    const child = node.children[i];
+
+    // コードブロック・インラインコード内のディレクティブ記法はリテラルとして保持
+    if (child.type === "code" || child.type === "inlineCode") {
+      continue;
+    }
+
+    if (child.type === "html" && typeof child.value === "string") {
+      let next = child.value.replace(
+        HL_COMMENT_REGEX,
+        '<span data-hl="$1"></span>'
+      );
+      if (!nextInsideBlockquote) {
+        next = next
+          .replace(
+            PAGEBREAK_COMMENT_REGEX,
+            '\n<div class="page-break"></div>\n'
+          )
+          .replace(
+            CHAPTER_START_COMMENT_REGEX,
+            '\n<div data-chapter-marker="start"></div>\n'
+          )
+          .replace(
+            CHAPTER_END_COMMENT_REGEX,
+            '\n<div data-chapter-marker="end"></div>\n'
+          );
+      }
+      child.value = next;
+      continue;
+    }
+
+    if (
+      !nextInsideBlockquote &&
+      child.type === "paragraph" &&
+      Array.isArray(child.children)
+    ) {
+      if (
+        child.children.length === 1 &&
+        child.children[0].type === "text" &&
+        typeof child.children[0].value === "string" &&
+        NEWPAGE_LINE_REGEX.test(child.children[0].value)
+      ) {
+        node.children[i] = {
+          type: "html",
+          value: '<div class="page-break"></div>',
+        };
+        continue;
+      }
+
+      const nextParaChildren: MdastLikeNode[] = [];
+      let changed = false;
+
+      for (const pChild of child.children) {
+        if (pChild.type !== "text" || typeof pChild.value !== "string") {
+          nextParaChildren.push(pChild);
+          continue;
+        }
+        const lines = pChild.value.split(/\r?\n/);
+        if (!lines.some((line) => NEWPAGE_LINE_REGEX.test(line))) {
+          nextParaChildren.push(pChild);
+          continue;
+        }
+        changed = true;
+        let textBuf: string[] = [];
+        const flushText = () => {
+          if (textBuf.length > 0) {
+            nextParaChildren.push({ type: "text", value: textBuf.join("\n") });
+            textBuf = [];
+          }
+        };
+        for (const line of lines) {
+          if (NEWPAGE_LINE_REGEX.test(line)) {
+            flushText();
+            nextParaChildren.push({
+              type: "html",
+              value: '<div class="page-break"></div>',
+            });
+          } else {
+            textBuf.push(line);
+          }
+        }
+        flushText();
+      }
+
+      if (changed) {
+        child.children = nextParaChildren;
+      }
+    }
+
+    transformMdastDirectives(child, nextInsideBlockquote);
+  }
+}
+
+function remarkDirectives() {
+  return (tree: unknown) => {
+    transformMdastDirectives(tree as MdastLikeNode, false);
+  };
 }
 
 /**
@@ -1843,7 +1945,6 @@ export async function compileMarkdownToHtml(
   assets: Record<string, string> = {}
 ): Promise<CompiledDocument> {
   const { frontmatter, body } = parseMarkdownDocument(markdown);
-  const preprocessedBody = preprocessDirectives(body);
   const tocEntries: TocEntry[] = [];
 
   const processor = unified()
@@ -1851,6 +1952,7 @@ export async function compileMarkdownToHtml(
     .use(remarkFrontmatter, ["yaml"])
     .use(remarkGfm)
     .use(remarkMath)
+    .use(remarkDirectives)
     .use(remarkColorBarMarkers)
     .use(remarkChartMarkers)
     .use(remarkCardBlockMarkers)
@@ -1874,7 +1976,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeHighlight)
     .use(rehypeStringify);
 
-  const file = await processor.process(preprocessedBody);
+  const file = await processor.process(body);
   const bodyHtml = String(file);
 
   const logoSrc = resolveLogoUrl(frontmatter.logo, assets);
