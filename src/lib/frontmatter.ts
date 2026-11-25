@@ -1,4 +1,5 @@
 import yaml from "js-yaml";
+import { parseSafeYamlRecord } from "./yaml-safe";
 import {
   ConfidentialMode,
   CoverOverlayMode,
@@ -201,26 +202,22 @@ export function parseMarkdownDocument(markdown: string): ParsedDocument {
   const rawYaml = match[1];
   const body = markdown.slice(match[0].length);
 
-  try {
-    const parsed = yaml.load(rawYaml);
-    const record =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
+  const record = parseSafeYamlRecord(rawYaml);
+  if (record) {
     return {
       frontmatter: normalizeFrontmatter(record),
       body,
       rawYaml,
       hasFrontmatter: true,
     };
-  } catch {
-    return {
-      frontmatter: { ...DEFAULT_FRONTMATTER },
-      body,
-      rawYaml,
-      hasFrontmatter: true,
-    };
   }
+
+  return {
+    frontmatter: { ...DEFAULT_FRONTMATTER },
+    body,
+    rawYaml,
+    hasFrontmatter: true,
+  };
 }
 
 export function serializeFrontmatter(frontmatter: DocumentFrontmatter): string {

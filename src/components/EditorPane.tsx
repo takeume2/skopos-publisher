@@ -159,7 +159,15 @@ export function EditorPane({
   const insertImageFile = useCallback(
     async (file: File, targetPos?: number | null) => {
       if (!onUploadImage || !file.type.startsWith("image/")) return;
-      const assetId = await onUploadImage(file);
+      let assetId: string;
+      try {
+        assetId = await onUploadImage(file);
+      } catch (err) {
+        showDropNotice(
+          err instanceof Error ? err.message : "画像の読み込みに失敗しました。"
+        );
+        return;
+      }
       const altName = file.name.replace(/\.[^.]+$/, "") || "image";
       const imageMarkdown = `![${altName}](${assetId})`;
 
@@ -188,7 +196,7 @@ export function EditorPane({
         block: false,
       });
     },
-    [handleInsert, onUploadImage]
+    [handleInsert, onUploadImage, showDropNotice]
   );
 
   const handleFileDropEvent = useCallback(

@@ -430,4 +430,33 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
     });
     expect(onCursorLineChange).toHaveBeenCalledWith(4);
   });
+
+  it("shows a notice and skips insertion when onUploadImage rejects with a size limit error (#16)", async () => {
+    const onUploadImage = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("「huge.png」（15.0 MB）は インライン画像 の上限（10 MB）を超えているため読み込めません。")
+      );
+
+    render(
+      <EditorPane
+        value="# 本文"
+        onChange={vi.fn()}
+        onUploadImage={onUploadImage}
+      />
+    );
+
+    const bigPng = new File(["png"], "huge.png", { type: "image/png" });
+    capturedHandlers.drop?.({
+      dataTransfer: { files: [bigPng], types: ["Files"] },
+      preventDefault: vi.fn(),
+    } as unknown as DragEvent);
+
+    await waitFor(() => {
+      expect(screen.getByRole("status").textContent).toContain(
+        "上限（10 MB）を超えているため読み込めません"
+      );
+    });
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
 });

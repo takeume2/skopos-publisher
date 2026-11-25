@@ -1,5 +1,5 @@
-import yaml from "js-yaml";
 import { parseMarkdownDocument } from "./frontmatter";
+import { parseSafeYamlRecord } from "./yaml-safe";
 
 export const FALLBACK_PRINT_TITLE = "無題のドキュメント";
 
@@ -24,31 +24,22 @@ function extractExplicitFrontmatterTitle(
 ): string | null {
   if (!hasFrontmatter || !rawYaml.trim()) return null;
 
-  try {
-    const parsed = yaml.load(rawYaml);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-
-    const record = parsed as Record<string, unknown>;
-    if (!Object.prototype.hasOwnProperty.call(record, "title")) {
-      return null;
-    }
-
-    const rawTitle = record.title;
-    if (
-      typeof rawTitle !== "string" &&
-      typeof rawTitle !== "number" &&
-      typeof rawTitle !== "boolean"
-    ) {
-      return null;
-    }
-
-    const normalized = normalizeSingleLineTitle(String(rawTitle));
-    return normalized || null;
-  } catch {
+  const record = parseSafeYamlRecord(rawYaml);
+  if (!record || !Object.prototype.hasOwnProperty.call(record, "title")) {
     return null;
   }
+
+  const rawTitle = record.title;
+  if (
+    typeof rawTitle !== "string" &&
+    typeof rawTitle !== "number" &&
+    typeof rawTitle !== "boolean"
+  ) {
+    return null;
+  }
+
+  const normalized = normalizeSingleLineTitle(String(rawTitle));
+  return normalized || null;
 }
 
 function stripInlineMarkdown(text: string): string {
