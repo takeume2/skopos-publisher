@@ -472,17 +472,20 @@ export function buildPagedMediaCss(
 
     @page toc {
       ${strictWatermarkRule}
-      @top-left { content: none; }
-      @top-center { content: none; }
-      @top-right { content: none; }
-      @bottom-left { content: none; }
-      @bottom-center {
-        content: counter(page, lower-roman);
-        font-family: var(--doc-font-sans);
-        font-size: 8.5pt;
-        color: var(--doc-muted);
-      }
-      @bottom-right { content: none; }
+      @top-left { content: none; border: none; background-image: none; }
+      @top-center { content: none; border: none; background-image: none; }
+      @top-right { content: none; border: none; background-image: none; }
+      @bottom-left { content: none; border: none; background-image: none; }
+      @bottom-center { content: none; border: none; background-image: none; }
+      @bottom-right { content: none; border: none; background-image: none; }
+    }
+
+    /* Paged.js 0.4.x の hasContent 継承による目次ページのヘッダー／フッター罫線・ロゴ漏れを抑止 */
+    .pagedjs_toc_page .pagedjs_margin-top > .pagedjs_margin,
+    .pagedjs_toc_page .pagedjs_margin-bottom > .pagedjs_margin {
+      visibility: hidden !important;
+      border: none !important;
+      background-image: none !important;
     }
 
     @page chapter {

@@ -87,4 +87,45 @@ describe("buildPagedMediaCss", () => {
     expect(css).toContain(".doc-chart-swatch {");
     expect(css).toContain(".doc-chart-legend {");
   });
+
+  it("hides header and footer cleanly on @page toc without roman page numbers or inherited border/logo leaks", () => {
+    const css = buildPagedMediaCss({
+      ...DEFAULT_FRONTMATTER,
+      logo: "https://example.com/logo.png",
+      logo_position: "cover-and-header",
+    });
+
+    const tocMatch = css.match(/@page toc \{[\s\S]*?\n    \}/);
+    expect(tocMatch).not.toBeNull();
+    const tocBlock = tocMatch![0];
+
+    expect(tocBlock).not.toContain("lower-roman");
+    expect(tocBlock).not.toContain("counter(page");
+    expect(tocBlock).toContain(
+      "@top-left { content: none; border: none; background-image: none; }"
+    );
+    expect(tocBlock).toContain(
+      "@top-center { content: none; border: none; background-image: none; }"
+    );
+    expect(tocBlock).toContain(
+      "@top-right { content: none; border: none; background-image: none; }"
+    );
+    expect(tocBlock).toContain(
+      "@bottom-left { content: none; border: none; background-image: none; }"
+    );
+    expect(tocBlock).toContain(
+      "@bottom-center { content: none; border: none; background-image: none; }"
+    );
+    expect(tocBlock).toContain(
+      "@bottom-right { content: none; border: none; background-image: none; }"
+    );
+
+    expect(css).toContain(
+      ".pagedjs_toc_page .pagedjs_margin-top > .pagedjs_margin,"
+    );
+    expect(css).toContain(
+      ".pagedjs_toc_page .pagedjs_margin-bottom > .pagedjs_margin {"
+    );
+    expect(css).toContain("visibility: hidden !important;");
+  });
 });
