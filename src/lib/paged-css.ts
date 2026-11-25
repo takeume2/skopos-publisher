@@ -1085,6 +1085,94 @@ export function buildPagedMediaCss(
       --card-accent: var(--doc-primary);
     }
 
+    /* 円グラフ／ドーナツグラフ（純SVGベクター） */
+    .doc-chart {
+      margin: 4.5mm 0;
+      padding: 3.5mm 4mm;
+      border: 0.5pt solid var(--doc-border);
+      border-radius: 1.5mm;
+      background-color: var(--doc-bg-subtle);
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .doc-chart-title {
+      font-family: var(--doc-font-heading);
+      font-size: 9pt;
+      font-weight: 700;
+      color: var(--doc-primary);
+      margin-bottom: 2.5mm;
+    }
+
+    .doc-chart-body {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 6mm;
+    }
+
+    .doc-chart-svg {
+      width: 44mm;
+      height: 44mm;
+      flex-shrink: 0;
+      display: block;
+      font-family: var(--doc-font-heading);
+    }
+
+    .doc-chart-legend {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5mm;
+      font-size: 8.2pt;
+      line-height: 1.35;
+      color: var(--doc-text);
+    }
+
+    .doc-chart-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 2mm;
+    }
+
+    .doc-chart-swatch {
+      display: inline-block;
+      width: 2.8mm;
+      height: 2.8mm;
+      border-radius: 0.6mm;
+      flex-shrink: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .doc-chart-legend-label {
+      flex: 1;
+      min-width: 0;
+      font-weight: 600;
+      color: var(--doc-text);
+      overflow-wrap: anywhere;
+    }
+
+    .doc-chart-legend-value {
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+      color: var(--doc-muted);
+      white-space: nowrap;
+    }
+
+    .doc-chart-total {
+      margin-top: 1mm;
+      padding-top: 1.5mm;
+      border-top: 0.5pt solid var(--doc-border);
+      display: flex;
+      justify-content: space-between;
+      font-size: 8pt;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--doc-primary);
+    }
+
     .doc-body h1,
     .doc-body h2,
     .doc-body h3,

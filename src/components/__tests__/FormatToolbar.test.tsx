@@ -54,4 +54,23 @@ describe("FormatToolbar callout buttons", () => {
       })
     );
   });
+
+  it("inserts donut chart template when the pie/donut button is clicked", () => {
+    const onInsert = vi.fn();
+    render(<FormatToolbar onInsert={onInsert} />);
+
+    const chartButton = screen.getByTitle(
+      "円／ドーナツグラフ <!-- donut: ... -->"
+    );
+    fireEvent.click(chartButton);
+
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(onInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        before: "<!-- donut: ",
+        after: " -->\n",
+        block: true,
+      })
+    );
+  });
 });

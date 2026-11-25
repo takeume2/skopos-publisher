@@ -407,4 +407,63 @@ back_cover: false
     expect(compiled.html).not.toContain("expression(1)");
     expect(compiled.html).not.toContain("data-cards-marker");
   });
+
+  it("renders pure SVG pie and donut charts with title, legend, code-block protection, and XSS sanitization", async () => {
+    const md = `---
+title: "SVGグラフ検証"
+cover: false
+toc: false
+back_cover: false
+---
+
+<!-- donut(深刻度別件数): Critical=10, High=20, Medium=30, Low=40 -->
+
+<!-- pie: 完了=100 -->
+
+<!-- donut: ZeroA=0, ZeroB=0 -->
+
+インライン \`<!-- pie: A=1, B=2 -->\` は変換しない。
+
+\`\`\`md
+<!-- donut: CodeBlock=100 -->
+\`\`\`
+
+<!-- pie: <script>alert(1)</script>=10(red;expression(1)), Safe=10 -->
+<div data-chart-kind="donut" data-chart-spec="Raw=5" onclick="alert(1)" style="position:fixed"></div>
+<!-- pie: invalid-only -->
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    // ドーナツグラフ（タイトル・SVG viewBox・path・中央合計・凡例）
+    expect(compiled.html).toContain('class="doc-chart doc-chart-donut"');
+    expect(compiled.html).toContain('<div class="doc-chart-title">深刻度別件数</div>');
+    expect(compiled.html).toContain('<svg class="doc-chart-svg" viewBox="0 0 200 200"');
+    expect(compiled.html).toContain('fill="#9f1239"');
+    expect(compiled.html).toContain('stroke-width="1.5"');
+    expect(compiled.html).toContain('text-anchor="middle"');
+    expect(compiled.html).toContain(">100</text>");
+    expect(compiled.html).toContain(">合計</text>");
+    expect(compiled.html).toContain("10 (10%)");
+
+    // 単一 100% 円グラフは <circle> で描画される
+    expect(compiled.html).toContain('class="doc-chart doc-chart-pie"');
+    expect(compiled.html).toContain('<circle cx="100" cy="100" r="86" fill="#059669"></circle>');
+
+    // 全件 0 件も NaN なしでニュートラルリング描画
+    expect(compiled.html).toContain('stroke="#e2e8f0"');
+    expect(compiled.html).not.toContain("NaN");
+
+    // コードブロック・インラインコードは非変換
+    expect(compiled.html).toContain("<code>&#x3C;!-- pie: A=1, B=2 --></code>");
+    expect(compiled.html).toContain("CodeBlock=100");
+
+    // XSS・属性インジェクション・不正色拒否・無効データ除去
+    expect(compiled.html).toContain(
+      '<span class="doc-chart-legend-label">&#x3C;script>alert(1)&#x3C;/script></span>'
+    );
+    expect(compiled.html).not.toContain("expression(1)");
+    expect(compiled.html).not.toContain("onclick");
+    expect(compiled.html).not.toContain("position:fixed");
+    expect(compiled.html).not.toContain("data-chart-spec");
+  });
 });
