@@ -35,4 +35,23 @@ describe("FormatToolbar callout buttons", () => {
     );
     expect(inserted.every((s) => s.block === true)).toBe(true);
   });
+
+  it("inserts KPI card block template when the card button is clicked", () => {
+    const onInsert = vi.fn();
+    render(<FormatToolbar onInsert={onInsert} />);
+
+    const cardButton = screen.getByTitle(
+      "カードブロック（サマリー／KPI）<!-- cards -->"
+    );
+    fireEvent.click(cardButton);
+
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(onInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        before: "<!-- cards -->\n",
+        after: "\n<!-- /cards -->\n",
+        block: true,
+      })
+    );
+  });
 });

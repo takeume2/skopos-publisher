@@ -347,4 +347,64 @@ back_cover: false
     expect(compiled.html).toContain("<blockquote>\n<p>[!NOTE]nospace");
     expect(compiled.html).toContain("<blockquote>\n<p>[!UNKNOWN] 未対応");
   });
+
+  it("renders card blocks with 2-4 column CSS Grid, explicit column override, code block protection, and XSS sanitization", async () => {
+    const md = `---
+title: "KPIレポート"
+cover: false
+toc: false
+back_cover: false
+---
+
+<!-- cards -->
+- 検出総数 | 42件 | 前回比 -8件
+- Critical | 3件 | 要即時対応 | critical
+- 適合率 | 92.5% | 目標 90%以上 | success
+- カスタム | A | 総合評価 | #0284c7
+<!-- /cards -->
+
+<!-- cards: 2 -->
+- 項目A | 10
+- 項目B | 20
+- 項目C | 30
+<!-- /cards -->
+
+インライン \`<!-- cards -->\` は変換しない。
+
+\`\`\`md
+<!-- cards -->
+- CodeBlock | 999
+<!-- /cards -->
+\`\`\`
+
+<!-- cards -->
+- <script>alert(1)</script> | 10 | 説明 | red;expression(1)
+<!-- /cards -->
+
+<!-- cards -->
+<!-- /cards -->
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    // 4枚自動レイアウト（4列）とセマンティック／カスタム色
+    expect(compiled.html).toContain('<div class="doc-cards doc-cards-cols-4">');
+    expect(compiled.html).toContain('<div class="doc-card-label">検出総数</div>');
+    expect(compiled.html).toContain('<div class="doc-card-value">42件</div>');
+    expect(compiled.html).toContain('<div class="doc-card-note">前回比 -8件</div>');
+    expect(compiled.html).toContain('class="doc-card doc-card-accent-critical"');
+    expect(compiled.html).toContain('class="doc-card doc-card-accent-success"');
+    expect(compiled.html).toContain('style="--card-accent: #0284c7;"');
+
+    // 明示列指定（2列）
+    expect(compiled.html).toContain('<div class="doc-cards doc-cards-cols-2">');
+
+    // コードブロック・インラインコード非変換
+    expect(compiled.html).toContain("<code>&#x3C;!-- cards --></code>");
+    expect(compiled.html).toContain("CodeBlock | 999");
+
+    // XSS サニタイズと不正色拒否、孤立・空マーカーの除去
+    expect(compiled.html).not.toContain("<script");
+    expect(compiled.html).not.toContain("expression(1)");
+    expect(compiled.html).not.toContain("data-cards-marker");
+  });
 });

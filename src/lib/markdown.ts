@@ -23,6 +23,12 @@ import {
   formatColorBarPercent,
   parseColorBarSpec,
 } from "./colorbar";
+import {
+  parseCardColumnsAttr,
+  parseCardItem,
+  resolveCardColumns,
+  type ParsedCardItem,
+} from "./cards";
 
 type CalloutType =
   | "note"
@@ -51,6 +57,8 @@ const SANITIZE_SCHEMA: NonNullable<Parameters<typeof rehypeSanitize>[0]> = {
       ...(defaultSchema.attributes?.div || []),
       ["className", "page-break"],
       ["dataChapterMarker", "start", "end"],
+      ["dataCardsMarker", "start", "end"],
+      ["dataCardsCols", "2", "3", "4"],
       "dataColorbar",
     ],
     span: [
@@ -1136,6 +1144,210 @@ function buildBackCoverHtml(
 }
 
 const COLORBAR_COMMENT_REGEX = /<!--\s*colorbar\s*:\s*([\s\S]*?)\s*-->/gi;
+const CARDS_START_COMMENT_REGEX =
+  /<!--\s*cards(?:\s*(?::\s*|\s+cols\s*=\s*)(\d+))?\s*-->/gi;
+const CARDS_END_COMMENT_REGEX = /<!--\s*\/cards\s*-->/gi;
+
+function remarkCardBlockMarkers() {
+  return (tree: unknown) => {
+    visit(
+      tree as Parameters<typeof visit>[0],
+      "html",
+      (node: { type: string; value?: string }) => {
+        if (typeof node.value !== "string") return;
+        let next = node.value;
+
+        CARDS_START_COMMENT_REGEX.lastIndex = 0;
+        next = next.replace(
+          CARDS_START_COMMENT_REGEX,
+          (_match, colsRaw?: string) => {
+            const cols = parseCardColumnsAttr(colsRaw);
+            return cols
+              ? `\n<div data-cards-marker="start" data-cards-cols="${cols}"></div>\n`
+              : '\n<div data-cards-marker="start"></div>\n';
+          }
+        );
+
+        CARDS_END_COMMENT_REGEX.lastIndex = 0;
+        next = next.replace(
+          CARDS_END_COMMENT_REGEX,
+          '\n<div data-cards-marker="end"></div>\n'
+        );
+
+        node.value = next;
+      }
+    );
+  };
+}
+
+function isCardsMarkerNode(
+  node: RootContent | undefined,
+  kind: "start" | "end"
+): boolean {
+  return (
+    Boolean(node) &&
+    node!.type === "element" &&
+    node!.tagName === "div" &&
+    node!.properties?.dataCardsMarker === kind
+  );
+}
+
+function collectCardsFromNodes(nodes: RootContent[]): ParsedCardItem[] {
+  const cards: ParsedCardItem[] = [];
+  for (const item of nodes) {
+    if (
+      item.type === "element" &&
+      (item.tagName === "ul" || item.tagName === "ol")
+    ) {
+      for (const li of item.children) {
+        if (li.type === "element" && li.tagName === "li") {
+          const parsed = parseCardItem(getNodeText(li));
+          if (parsed) cards.push(parsed);
+        }
+      }
+    }
+  }
+  return cards;
+}
+
+function buildCardGridElement(
+  cards: ParsedCardItem[],
+  cols: 2 | 3 | 4
+): Element {
+  return {
+    type: "element",
+    tagName: "div",
+    properties: {
+      className: ["doc-cards", `doc-cards-cols-${cols}`],
+    },
+    children: cards.map((card) => {
+      const classNames = ["doc-card"];
+      if (card.accentKind) {
+        classNames.push(`doc-card-accent-${card.accentKind}`);
+      }
+
+      const cardChildren: Element[] = [];
+      if (card.label) {
+        cardChildren.push({
+          type: "element",
+          tagName: "div",
+          properties: { className: ["doc-card-label"] },
+          children: [{ type: "text", value: card.label }],
+        });
+      }
+      if (card.value) {
+        cardChildren.push({
+          type: "element",
+          tagName: "div",
+          properties: { className: ["doc-card-value"] },
+          children: [{ type: "text", value: card.value }],
+        });
+      }
+      if (card.note) {
+        cardChildren.push({
+          type: "element",
+          tagName: "div",
+          properties: { className: ["doc-card-note"] },
+          children: [{ type: "text", value: card.note }],
+        });
+      }
+
+      const properties: Element["properties"] = { className: classNames };
+      if (card.customColor) {
+        properties.style = `--card-accent: ${card.customColor};`;
+      }
+
+      return {
+        type: "element",
+        tagName: "div",
+        properties,
+        children: cardChildren,
+      };
+    }),
+  };
+}
+
+function transformCardChildren(children: RootContent[]) {
+  for (let i = 0; i < children.length; i++) {
+    const current = children[i];
+    if (isCardsMarkerNode(current, "end")) {
+      children.splice(i, 1);
+      i--;
+      continue;
+    }
+
+    if (!isCardsMarkerNode(current, "start") || current.type !== "element") {
+      continue;
+    }
+
+    const rawCols =
+      typeof current.properties?.dataCardsCols === "string"
+        ? current.properties.dataCardsCols
+        : undefined;
+    const explicitCols = parseCardColumnsAttr(rawCols);
+
+    let endIdx = -1;
+    for (let j = i + 1; j < children.length; j++) {
+      if (isCardsMarkerNode(children[j], "end")) {
+        endIdx = j;
+        break;
+      }
+      if (isCardsMarkerNode(children[j], "start")) {
+        break;
+      }
+    }
+
+    let sliceStart = i + 1;
+    let sliceEnd = endIdx;
+    let replaceEnd = endIdx;
+
+    if (endIdx === -1) {
+      let nextIdx = i + 1;
+      while (nextIdx < children.length && isWhitespaceText(children[nextIdx])) {
+        nextIdx++;
+      }
+      const maybeList = children[nextIdx];
+      if (
+        maybeList &&
+        maybeList.type === "element" &&
+        (maybeList.tagName === "ul" || maybeList.tagName === "ol")
+      ) {
+        sliceStart = nextIdx;
+        sliceEnd = nextIdx + 1;
+        replaceEnd = nextIdx;
+      } else {
+        children.splice(i, 1);
+        i--;
+        continue;
+      }
+    }
+
+    const cards = collectCardsFromNodes(children.slice(sliceStart, sliceEnd));
+    if (cards.length === 0) {
+      if (endIdx !== -1) {
+        children.splice(endIdx, 1);
+      }
+      children.splice(i, 1);
+      i--;
+      continue;
+    }
+
+    const cols = resolveCardColumns(cards.length, explicitCols);
+    const gridNode = buildCardGridElement(cards, cols);
+    children.splice(i, replaceEnd - i + 1, gridNode);
+  }
+}
+
+function rehypeCardBlocks() {
+  return (tree: Root) => {
+    transformCardChildren(tree.children);
+    visit(tree, "element", (node: Element) => {
+      if (node.children && node.children.length > 0) {
+        transformCardChildren(node.children as RootContent[]);
+      }
+    });
+  };
+}
 
 function remarkColorBarMarkers() {
   return (tree: unknown) => {
@@ -1312,6 +1524,7 @@ export async function compileMarkdownToHtml(
     .use(remarkGfm)
     .use(remarkMath)
     .use(remarkColorBarMarkers)
+    .use(remarkCardBlockMarkers)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeSanitize, SANITIZE_SCHEMA)
@@ -1324,6 +1537,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeCallouts)
     .use(rehypeBadges)
     .use(rehypeColorBars)
+    .use(rehypeCardBlocks)
     .use(rehypeHeadingHighlights)
     .use(rehypeCodeBlockLabels)
     .use(rehypeKatex, { trust: false, strict: false, maxExpand: 1000 })
