@@ -17,6 +17,7 @@ import {
   ImagePlus,
   Info,
   Italic,
+  LayoutGrid,
   List,
   OctagonAlert,
   Sigma,
@@ -103,6 +104,18 @@ export function FormatToolbar({
         before: "<!-- colorbar: ",
         after: " -->\n",
         placeholder: "Critical=10, High=20, Medium=30, Low=40",
+        block: true,
+      },
+    },
+    {
+      title: "カードブロック（サマリー／KPI）<!-- cards -->",
+      icon: <LayoutGrid className="h-3.5 w-3.5" />,
+      snippet: {
+        label: "カード",
+        before: "<!-- cards -->\n",
+        after: "\n<!-- /cards -->\n",
+        placeholder:
+          "- 検出総数 | 42件 | 前回比 -8件\n- Critical | 3件 | 要即時対応 | critical\n- 適合率 | 92.5% | 目標 90%以上 | success",
         block: true,
       },
     },

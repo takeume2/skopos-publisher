@@ -977,6 +977,114 @@ export function buildPagedMediaCss(
       color: var(--doc-muted);
     }
 
+    /* カードブロック（サマリー／KPIカード） */
+    .doc-cards {
+      display: grid;
+      gap: 3mm;
+      margin: 4.5mm 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .doc-cards-cols-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .doc-cards-cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .doc-cards-cols-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .doc-card {
+      display: flex;
+      flex-direction: column;
+      gap: 1.2mm;
+      min-width: 0;
+      padding: 3mm 3.5mm;
+      border: 0.5pt solid var(--doc-border);
+      border-top: 2.5pt solid var(--card-accent, var(--doc-accent));
+      border-radius: 1.5mm;
+      background-color: var(--doc-bg-subtle);
+      break-inside: avoid;
+      page-break-inside: avoid;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .doc-card-label {
+      font-family: var(--doc-font-heading);
+      font-size: 7.8pt;
+      font-weight: 600;
+      line-height: 1.3;
+      color: var(--doc-muted);
+      overflow-wrap: anywhere;
+    }
+
+    .doc-card-value {
+      font-family: var(--doc-font-heading);
+      font-size: 15pt;
+      font-weight: 700;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+      color: var(--card-accent, var(--doc-primary));
+      overflow-wrap: anywhere;
+    }
+
+    .doc-card-note {
+      font-size: 7.5pt;
+      line-height: 1.35;
+      color: var(--doc-muted);
+      overflow-wrap: anywhere;
+    }
+
+    .doc-card-accent-critical {
+      --card-accent: #9f1239;
+      background-color: #fff1f2;
+    }
+
+    .doc-card-accent-high {
+      --card-accent: #ea580c;
+      background-color: #fff7ed;
+    }
+
+    .doc-card-accent-medium,
+    .doc-card-accent-warning {
+      --card-accent: #d97706;
+      background-color: #fffbeb;
+    }
+
+    .doc-card-accent-low,
+    .doc-card-accent-success {
+      --card-accent: #16a34a;
+      background-color: #f0fdf4;
+    }
+
+    .doc-card-accent-info {
+      --card-accent: #2563eb;
+      background-color: #eff6ff;
+    }
+
+    .doc-card-accent-primary {
+      --card-accent: var(--doc-primary);
+    }
+
+    .doc-card-accent-accent {
+      --card-accent: var(--doc-accent);
+    }
+
+    .doc-card-accent-neutral {
+      --card-accent: #64748b;
+    }
+
+    .doc-card-accent-none {
+      border-top-width: 0.5pt;
+      border-top-color: var(--doc-border);
+      --card-accent: var(--doc-primary);
+    }
+
     .doc-body h1,
     .doc-body h2,
     .doc-body h3,

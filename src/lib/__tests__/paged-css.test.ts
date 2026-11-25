@@ -64,4 +64,16 @@ describe("buildPagedMediaCss", () => {
     expect(css).toContain("border-left-color: #0d9488;");
     expect(css).toContain("border-left-color: #16a34a;");
   });
+
+  it("includes 2-4 column CSS Grid and print-safe rules for KPI card blocks", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(".doc-cards {");
+    expect(css).toContain("display: grid;");
+    expect(css).toContain("grid-template-columns: repeat(2, minmax(0, 1fr));");
+    expect(css).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
+    expect(css).toContain("grid-template-columns: repeat(4, minmax(0, 1fr));");
+    expect(css).toContain(".doc-card {");
+    expect(css).toContain(".doc-card-accent-critical {");
+  });
 });
