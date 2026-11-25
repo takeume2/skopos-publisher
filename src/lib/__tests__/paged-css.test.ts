@@ -76,4 +76,15 @@ describe("buildPagedMediaCss", () => {
     expect(css).toContain(".doc-card {");
     expect(css).toContain(".doc-card-accent-critical {");
   });
+
+  it("includes print-safe side-by-side layout rules for SVG pie and donut charts", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(".doc-chart {");
+    expect(css).toContain(".doc-chart-body {");
+    expect(css).toContain(".doc-chart-svg {");
+    expect(css).toContain("width: 44mm;");
+    expect(css).toContain(".doc-chart-swatch {");
+    expect(css).toContain(".doc-chart-legend {");
+  });
 });

@@ -29,6 +29,15 @@ import {
   resolveCardColumns,
   type ParsedCardItem,
 } from "./cards";
+import {
+  buildSvgChart,
+  CHART_CENTER,
+  CHART_DONUT_RING_RADIUS,
+  CHART_DONUT_RING_STROKE_WIDTH,
+  CHART_OUTER_RADIUS,
+  CHART_SVG_SIZE,
+  type ChartKind,
+} from "./pie-chart";
 
 type CalloutType =
   | "note"
@@ -59,6 +68,9 @@ const SANITIZE_SCHEMA: NonNullable<Parameters<typeof rehypeSanitize>[0]> = {
       ["dataChapterMarker", "start", "end"],
       ["dataCardsMarker", "start", "end"],
       ["dataCardsCols", "2", "3", "4"],
+      ["dataChartKind", "pie", "donut"],
+      "dataChartTitle",
+      "dataChartSpec",
       "dataColorbar",
     ],
     span: [
@@ -1144,9 +1156,325 @@ function buildBackCoverHtml(
 }
 
 const COLORBAR_COMMENT_REGEX = /<!--\s*colorbar\s*:\s*([\s\S]*?)\s*-->/gi;
+const CHART_COMMENT_REGEX =
+  /<!--\s*(pie|donut)(?:\s*\(([^)\r\n]+)\))?\s*:\s*([\s\S]*?)\s*-->/gi;
 const CARDS_START_COMMENT_REGEX =
   /<!--\s*cards(?:\s*(?::\s*|\s+cols\s*=\s*)(\d+))?\s*-->/gi;
 const CARDS_END_COMMENT_REGEX = /<!--\s*\/cards\s*-->/gi;
+
+function remarkChartMarkers() {
+  return (tree: unknown) => {
+    visit(
+      tree as Parameters<typeof visit>[0],
+      "html",
+      (node: { type: string; value?: string }) => {
+        if (typeof node.value !== "string") return;
+        CHART_COMMENT_REGEX.lastIndex = 0;
+        if (!CHART_COMMENT_REGEX.test(node.value)) return;
+        CHART_COMMENT_REGEX.lastIndex = 0;
+        node.value = node.value.replace(
+          CHART_COMMENT_REGEX,
+          (_match, rawKind: string, rawTitle: string | undefined, spec: string) => {
+            const kind = rawKind.toLowerCase() === "donut" ? "donut" : "pie";
+            const titleAttr = rawTitle?.trim()
+              ? ` data-chart-title="${escapeHtml(rawTitle.trim())}"`
+              : "";
+            return `\n<div data-chart-kind="${kind}"${titleAttr} data-chart-spec="${escapeHtml(spec.trim())}"></div>\n`;
+          }
+        );
+      }
+    );
+  };
+}
+
+function rehypeCharts() {
+  return (tree: Root) => {
+    visit(tree, "element", (node: Element, index, parent) => {
+      if (
+        node.tagName !== "div" ||
+        !parent ||
+        typeof index !== "number" ||
+        typeof node.properties?.dataChartSpec !== "string"
+      ) {
+        return;
+      }
+
+      const rawKind = node.properties?.dataChartKind;
+      if (rawKind !== "pie" && rawKind !== "donut") {
+        parent.children.splice(index, 1);
+        return index;
+      }
+
+      const kind: ChartKind = rawKind;
+      const rawTitle =
+        typeof node.properties?.dataChartTitle === "string"
+          ? node.properties.dataChartTitle
+          : "";
+      const chart = buildSvgChart(kind, node.properties.dataChartSpec, rawTitle);
+
+      if (!chart) {
+        parent.children.splice(index, 1);
+        return index;
+      }
+
+      const ariaSummary = chart.segments
+        .map(
+          (seg) =>
+            `${seg.label} ${formatColorBarNumber(seg.value)} (${formatColorBarPercent(seg.displayPercent)})`
+        )
+        .join(", ");
+
+      const svgChildren: Element[] = [];
+
+      if (chart.slices.length === 0) {
+        if (kind === "donut") {
+          svgChildren.push({
+            type: "element",
+            tagName: "circle",
+            properties: {
+              cx: String(CHART_CENTER),
+              cy: String(CHART_CENTER),
+              r: String(CHART_DONUT_RING_RADIUS),
+              fill: "none",
+              stroke: "#e2e8f0",
+              strokeWidth: String(CHART_DONUT_RING_STROKE_WIDTH),
+            },
+            children: [],
+          });
+        } else {
+          svgChildren.push({
+            type: "element",
+            tagName: "circle",
+            properties: {
+              cx: String(CHART_CENTER),
+              cy: String(CHART_CENTER),
+              r: String(CHART_OUTER_RADIUS),
+              fill: "#e2e8f0",
+            },
+            children: [],
+          });
+          svgChildren.push({
+            type: "element",
+            tagName: "text",
+            properties: {
+              x: String(CHART_CENTER),
+              y: String(CHART_CENTER),
+              textAnchor: "middle",
+              dominantBaseline: "central",
+              fill: "#64748b",
+              fontSize: "16",
+              fontWeight: "700",
+            },
+            children: [{ type: "text", value: "0" }],
+          });
+        }
+      } else {
+        for (const slice of chart.slices) {
+          if (slice.isFullCircle) {
+            svgChildren.push(
+              kind === "donut"
+                ? {
+                    type: "element",
+                    tagName: "circle",
+                    properties: {
+                      cx: String(CHART_CENTER),
+                      cy: String(CHART_CENTER),
+                      r: String(CHART_DONUT_RING_RADIUS),
+                      fill: "none",
+                      stroke: slice.color,
+                      strokeWidth: String(CHART_DONUT_RING_STROKE_WIDTH),
+                    },
+                    children: [],
+                  }
+                : {
+                    type: "element",
+                    tagName: "circle",
+                    properties: {
+                      cx: String(CHART_CENTER),
+                      cy: String(CHART_CENTER),
+                      r: String(CHART_OUTER_RADIUS),
+                      fill: slice.color,
+                    },
+                    children: [],
+                  }
+            );
+          } else if (slice.pathD) {
+            svgChildren.push({
+              type: "element",
+              tagName: "path",
+              properties: {
+                d: slice.pathD,
+                fill: slice.color,
+                stroke: "#ffffff",
+                strokeWidth: "1.5",
+                strokeLinejoin: "round",
+              },
+              children: [],
+            });
+          }
+        }
+
+        for (const slice of chart.slices) {
+          if (!slice.showLabel) continue;
+          svgChildren.push({
+            type: "element",
+            tagName: "text",
+            properties: {
+              x: String(slice.labelX),
+              y: String(slice.labelY),
+              textAnchor: "middle",
+              dominantBaseline: "central",
+              fill: slice.textColor,
+              fontSize: "11",
+              fontWeight: "700",
+            },
+            children: [
+              {
+                type: "text",
+                value: formatColorBarPercent(slice.displayPercent),
+              },
+            ],
+          });
+        }
+      }
+
+      if (kind === "donut") {
+        svgChildren.push(
+          {
+            type: "element",
+            tagName: "text",
+            properties: {
+              x: String(CHART_CENTER),
+              y: String(CHART_CENTER - 6),
+              textAnchor: "middle",
+              dominantBaseline: "central",
+              fill: "#1e293b",
+              fontSize: "18",
+              fontWeight: "700",
+            },
+            children: [{ type: "text", value: chart.totalLabel }],
+          },
+          {
+            type: "element",
+            tagName: "text",
+            properties: {
+              x: String(CHART_CENTER),
+              y: String(CHART_CENTER + 14),
+              textAnchor: "middle",
+              dominantBaseline: "central",
+              fill: "#64748b",
+              fontSize: "9.5",
+              fontWeight: "600",
+            },
+            children: [{ type: "text", value: "合計" }],
+          }
+        );
+      }
+
+      const svgNode: Element = {
+        type: "element",
+        tagName: "svg",
+        properties: {
+          className: ["doc-chart-svg"],
+          viewBox: `0 0 ${CHART_SVG_SIZE} ${CHART_SVG_SIZE}`,
+          role: "img",
+          ariaLabel: chart.title ? `${chart.title}: ${ariaSummary}` : ariaSummary,
+        },
+        children: svgChildren,
+      };
+
+      const legendChildren: Element[] = chart.segments.map((seg) => ({
+        type: "element",
+        tagName: "div",
+        properties: { className: ["doc-chart-legend-item"] },
+        children: [
+          {
+            type: "element",
+            tagName: "span",
+            properties: {
+              className: ["doc-chart-swatch"],
+              style: `background-color: ${seg.color};`,
+              ariaHidden: "true",
+            },
+            children: [],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-chart-legend-label"] },
+            children: [{ type: "text", value: seg.label }],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-chart-legend-value"] },
+            children: [
+              {
+                type: "text",
+                value: `${formatColorBarNumber(seg.value)} (${formatColorBarPercent(seg.displayPercent)})`,
+              },
+            ],
+          },
+        ],
+      }));
+
+      legendChildren.push({
+        type: "element",
+        tagName: "div",
+        properties: { className: ["doc-chart-total"] },
+        children: [
+          {
+            type: "element",
+            tagName: "span",
+            properties: {},
+            children: [{ type: "text", value: "合計" }],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: {},
+            children: [{ type: "text", value: chart.totalLabel }],
+          },
+        ],
+      });
+
+      const figureChildren: Element[] = [];
+      if (chart.title) {
+        figureChildren.push({
+          type: "element",
+          tagName: "div",
+          properties: { className: ["doc-chart-title"] },
+          children: [{ type: "text", value: chart.title }],
+        });
+      }
+
+      figureChildren.push({
+        type: "element",
+        tagName: "div",
+        properties: { className: ["doc-chart-body"] },
+        children: [
+          svgNode,
+          {
+            type: "element",
+            tagName: "figcaption",
+            properties: { className: ["doc-chart-legend"] },
+            children: legendChildren,
+          },
+        ],
+      });
+
+      parent.children[index] = {
+        type: "element",
+        tagName: "figure",
+        properties: {
+          className: ["doc-chart", `doc-chart-${kind}`],
+          ariaLabel: chart.title ? `${chart.title}: ${ariaSummary}` : ariaSummary,
+        },
+        children: figureChildren,
+      };
+    });
+  };
+}
 
 function remarkCardBlockMarkers() {
   return (tree: unknown) => {
@@ -1524,6 +1852,7 @@ export async function compileMarkdownToHtml(
     .use(remarkGfm)
     .use(remarkMath)
     .use(remarkColorBarMarkers)
+    .use(remarkChartMarkers)
     .use(remarkCardBlockMarkers)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
@@ -1537,6 +1866,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeCallouts)
     .use(rehypeBadges)
     .use(rehypeColorBars)
+    .use(rehypeCharts)
     .use(rehypeCardBlocks)
     .use(rehypeHeadingHighlights)
     .use(rehypeCodeBlockLabels)
