@@ -315,6 +315,9 @@ export function buildPagedMediaCss(
       .doc-cover.has-cover-image .cover-accent-bar {
         display: none;
       }
+      .doc-cover.has-cover-image .cover-title {
+        font-size: 22pt;
+      }
       .doc-cover.has-cover-image .cover-recipient {
         margin-top: 6mm;
       }
@@ -581,7 +584,7 @@ export function buildPagedMediaCss(
       color: var(--doc-cover-text);
       overflow-wrap: break-word;
       line-break: strict;
-      text-wrap: balance;
+      word-break: auto-phrase;
     }
 
     .cover-subtitle {
@@ -589,6 +592,9 @@ export function buildPagedMediaCss(
       line-height: 1.5;
       margin: 0;
       opacity: 0.86;
+      overflow-wrap: break-word;
+      line-break: strict;
+      word-break: auto-phrase;
     }
 
     .cover-recipient {

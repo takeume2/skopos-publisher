@@ -128,4 +128,14 @@ describe("buildPagedMediaCss", () => {
     );
     expect(css).toContain("visibility: hidden !important;");
   });
+
+  it("uses phrase-aware wrapping on cover title/subtitle and tunes title font size when cover image is set", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain("word-break: auto-phrase;");
+    expect(css).not.toContain("text-wrap: balance;");
+    expect(css).toContain(
+      ".doc-cover.has-cover-image .cover-title {\n        font-size: 22pt;\n      }"
+    );
+  });
 });
