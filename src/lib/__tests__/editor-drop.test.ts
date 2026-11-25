@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   classifyEditorDrop,
   extractDropImageFile,
   isFileDragEvent,
+  resolveDropInsertPosition,
 } from "@/lib/editor-drop";
 
 describe("editor-drop", () => {
@@ -71,5 +72,25 @@ describe("editor-drop", () => {
     });
 
     expect(result).toEqual({ kind: "image", file: jpgFile });
+  });
+
+  it("resolves document offset from drop coordinates including offset 0 and returns null when unresolvable", () => {
+    const posAtCoords = vi.fn(({ x, y }: { x: number; y: number }) => {
+      if (x === 10 && y === 20) return 0;
+      if (x === 120 && y === 240) return 42;
+      return null;
+    });
+
+    expect(
+      resolveDropInsertPosition({ posAtCoords }, { clientX: 10, clientY: 20 })
+    ).toBe(0);
+    expect(
+      resolveDropInsertPosition({ posAtCoords }, { clientX: 120, clientY: 240 })
+    ).toBe(42);
+    expect(
+      resolveDropInsertPosition({ posAtCoords }, { clientX: 999, clientY: 999 })
+    ).toBeNull();
+    expect(resolveDropInsertPosition(null, { clientX: 10, clientY: 20 })).toBeNull();
+    expect(resolveDropInsertPosition({ posAtCoords }, {})).toBeNull();
   });
 });

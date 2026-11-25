@@ -7,7 +7,11 @@ import { languages } from "@codemirror/language-data";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { search } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
-import { classifyEditorDrop, isFileDragEvent } from "@/lib/editor-drop";
+import {
+  classifyEditorDrop,
+  isFileDragEvent,
+  resolveDropInsertPosition,
+} from "@/lib/editor-drop";
 import { FormatSnippet, FormatToolbar } from "./FormatToolbar";
 
 const UNSUPPORTED_DROP_MESSAGE =
@@ -80,13 +84,34 @@ export function EditorPane({
   }, []);
 
   const insertImageFile = useCallback(
-    async (file: File) => {
+    async (file: File, targetPos?: number | null) => {
       if (!onUploadImage || !file.type.startsWith("image/")) return;
       const assetId = await onUploadImage(file);
       const altName = file.name.replace(/\.[^.]+$/, "") || "image";
+      const imageMarkdown = `![${altName}](${assetId})`;
+
+      if (typeof targetPos === "number") {
+        const view = editorRef.current?.view;
+        if (!view) return;
+        const docLength = view.state.doc?.length;
+        const clampedPos =
+          typeof docLength === "number"
+            ? Math.min(Math.max(0, targetPos), docLength)
+            : Math.max(0, targetPos);
+        const nextCaret = clampedPos + imageMarkdown.length;
+
+        view.dispatch({
+          changes: { from: clampedPos, to: clampedPos, insert: imageMarkdown },
+          selection: { anchor: nextCaret, head: nextCaret },
+          scrollIntoView: true,
+        });
+        view.focus();
+        return;
+      }
+
       handleInsert({
         label: "画像",
-        before: `![${altName}](${assetId})`,
+        before: imageMarkdown,
         block: false,
       });
     },
@@ -94,7 +119,13 @@ export function EditorPane({
   );
 
   const handleFileDropEvent = useCallback(
-    (event: Pick<DragEvent, "dataTransfer" | "preventDefault">): boolean => {
+    (
+      event: Pick<DragEvent, "dataTransfer" | "preventDefault"> & {
+        clientX?: number;
+        clientY?: number;
+      },
+      dropView?: EditorView | null
+    ): boolean => {
       const classification = classifyEditorDrop(event.dataTransfer);
       if (classification.kind === "text-drag") {
         return false;
@@ -104,7 +135,11 @@ export function EditorPane({
 
       if (classification.kind === "image" && onUploadImage) {
         setDropNotice(null);
-        void insertImageFile(classification.file);
+        const resolvedPos = resolveDropInsertPosition(
+          dropView ?? editorRef.current?.view,
+          event
+        );
+        void insertImageFile(classification.file, resolvedPos);
         return true;
       }
 
@@ -127,7 +162,7 @@ export function EditorPane({
           }
           return false;
         },
-        drop: (event) => handleFileDropEvent(event),
+        drop: (event, view) => handleFileDropEvent(event, view),
         paste: (event) => {
           const items = event.clipboardData?.items;
           if (!items || !onUploadImage) return false;
@@ -211,7 +246,7 @@ export function EditorPane({
         }}
         onDrop={(e) => {
           if (!e.defaultPrevented) {
-            handleFileDropEvent(e);
+            handleFileDropEvent(e, editorRef.current?.view);
           }
         }}
       >

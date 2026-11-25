@@ -15,6 +15,37 @@ export type EditorDropClassification =
   | { kind: "image"; file: File }
   | { kind: "rejected-file"; fileNames: string[] };
 
+export interface DropPositionView {
+  posAtCoords?: (coords: { x: number; y: number }) => number | null;
+}
+
+export interface MinimalPointerCoords {
+  clientX?: number;
+  clientY?: number;
+}
+
+export function resolveDropInsertPosition(
+  view: DropPositionView | null | undefined,
+  coords: MinimalPointerCoords | null | undefined
+): number | null {
+  if (
+    !view ||
+    typeof view.posAtCoords !== "function" ||
+    !coords ||
+    typeof coords.clientX !== "number" ||
+    typeof coords.clientY !== "number" ||
+    !Number.isFinite(coords.clientX) ||
+    !Number.isFinite(coords.clientY)
+  ) {
+    return null;
+  }
+
+  const pos = view.posAtCoords({ x: coords.clientX, y: coords.clientY });
+  return typeof pos === "number" && Number.isFinite(pos) && pos >= 0
+    ? pos
+    : null;
+}
+
 export function isFileDragEvent(
   dataTransfer: MinimalDataTransfer | null | undefined
 ): boolean {

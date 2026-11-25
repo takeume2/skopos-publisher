@@ -3,14 +3,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 
 type DomHandlers = {
-  dragover?: (event: DragEvent) => boolean | void;
-  drop?: (event: DragEvent) => boolean | void;
-  paste?: (event: ClipboardEvent) => boolean | void;
+  dragover?: (event: DragEvent, view?: unknown) => boolean | void;
+  drop?: (event: DragEvent, view?: unknown) => boolean | void;
+  paste?: (event: ClipboardEvent, view?: unknown) => boolean | void;
 };
 
 let capturedHandlers: DomHandlers = {};
+let mockSelection = { from: 0, to: 0, head: 0 };
+let mockDocLength = 100;
 const mockDispatch = vi.fn();
 const mockFocus = vi.fn();
+const mockPosAtCoords = vi.fn<
+  (coords: { x: number; y: number }) => number | null
+>(() => null);
 
 vi.mock("@codemirror/view", () => ({
   EditorView: {
@@ -34,9 +39,11 @@ vi.mock("@uiw/react-codemirror", () => {
       React.useImperativeHandle(ref, () => ({
         view: {
           state: {
-            selection: { main: { from: 0, to: 0, head: 0 } },
+            doc: { length: mockDocLength },
+            selection: { main: mockSelection },
             sliceDoc: () => "",
           },
+          posAtCoords: mockPosAtCoords,
           dispatch: mockDispatch,
           focus: mockFocus,
         },
@@ -50,11 +57,15 @@ vi.mock("@uiw/react-codemirror", () => {
 
 import { EditorPane } from "@/components/EditorPane";
 
-describe("EditorPane file drop restriction (#30)", () => {
+describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
   beforeEach(() => {
     capturedHandlers = {};
+    mockSelection = { from: 0, to: 0, head: 0 };
+    mockDocLength = 100;
     mockDispatch.mockClear();
     mockFocus.mockClear();
+    mockPosAtCoords.mockReset();
+    mockPosAtCoords.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -83,7 +94,7 @@ describe("EditorPane file drop restriction (#30)", () => {
       preventDefault,
     } as unknown as DragEvent;
 
-    let handled: boolean | void;
+    let handled: boolean | void = undefined;
     act(() => {
       handled = capturedHandlers.drop?.(dropEvent);
     });
@@ -197,5 +208,144 @@ describe("EditorPane file drop restriction (#30)", () => {
     expect(screen.getByRole("status").textContent).toContain(
       "画像ファイル以外はドロップできません"
     );
+  });
+
+  it("inserts dropped image at the resolved drop coordinates instead of the original cursor position (#40)", async () => {
+    mockSelection = { from: 2, to: 6, head: 6 };
+    mockDocLength = 50;
+    mockPosAtCoords.mockReturnValue(24);
+    const onUploadImage = vi.fn().mockResolvedValue("asset:img_drop");
+
+    render(
+      <EditorPane
+        value={"# 見出し\n\nここに本文があります。\n\nここへドロップしたい。"}
+        onChange={vi.fn()}
+        onUploadImage={onUploadImage}
+      />
+    );
+
+    const pngFile = new File(["png"], "shot.png", { type: "image/png" });
+    const preventDefault = vi.fn();
+    const dropView = { posAtCoords: mockPosAtCoords };
+
+    capturedHandlers.drop?.(
+      {
+        dataTransfer: { files: [pngFile], types: ["Files"] },
+        clientX: 180,
+        clientY: 220,
+        preventDefault,
+      } as unknown as DragEvent,
+      dropView
+    );
+
+    await waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockPosAtCoords).toHaveBeenCalledWith({ x: 180, y: 220 });
+    const dispatched = mockDispatch.mock.calls[0][0];
+    const expectedText = "![shot](asset:img_drop)";
+    expect(dispatched.changes).toEqual({
+      from: 24,
+      to: 24,
+      insert: expectedText,
+    });
+    expect(dispatched.selection).toEqual({
+      anchor: 24 + expectedText.length,
+      head: 24 + expectedText.length,
+    });
+  });
+
+  it("handles dropping an image at document offset 0 without falling back to the cursor position (#40)", async () => {
+    mockSelection = { from: 15, to: 15, head: 15 };
+    mockDocLength = 30;
+    mockPosAtCoords.mockReturnValue(0);
+    const onUploadImage = vi.fn().mockResolvedValue("asset:img_top");
+
+    render(
+      <EditorPane
+        value="先頭に挿入したい本文です。"
+        onChange={vi.fn()}
+        onUploadImage={onUploadImage}
+      />
+    );
+
+    const pngFile = new File(["png"], "top.png", { type: "image/png" });
+    capturedHandlers.drop?.(
+      {
+        dataTransfer: { files: [pngFile], types: ["Files"] },
+        clientX: 12,
+        clientY: 14,
+        preventDefault: vi.fn(),
+      } as unknown as DragEvent,
+      { posAtCoords: mockPosAtCoords }
+    );
+
+    await waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+    });
+
+    const dispatched = mockDispatch.mock.calls[0][0];
+    expect(dispatched.changes).toEqual({
+      from: 0,
+      to: 0,
+      insert: "![top](asset:img_top)",
+    });
+  });
+
+  it("falls back to cursor position when drop coordinates cannot be resolved and keeps paste insertion unchanged (#40)", async () => {
+    mockSelection = { from: 9, to: 9, head: 9 };
+    mockDocLength = 40;
+    mockPosAtCoords.mockReturnValue(null);
+    const onUploadImage = vi.fn().mockResolvedValue("asset:img_fallback");
+
+    render(
+      <EditorPane
+        value="フォールバック確認用テキスト"
+        onChange={vi.fn()}
+        onUploadImage={onUploadImage}
+      />
+    );
+
+    // 座標解決不可な余白ドロップ → カーソル位置 (9) へフォールバック
+    const dropFile = new File(["png"], "margin.png", { type: "image/png" });
+    capturedHandlers.drop?.(
+      {
+        dataTransfer: { files: [dropFile], types: ["Files"] },
+        clientX: 400,
+        clientY: 500,
+        preventDefault: vi.fn(),
+      } as unknown as DragEvent,
+      { posAtCoords: mockPosAtCoords }
+    );
+
+    await waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+    });
+    expect(mockDispatch.mock.calls[0][0].changes).toEqual({
+      from: 9,
+      to: 9,
+      insert: "![margin](asset:img_fallback)",
+    });
+
+    // paste による画像挿入も従来通りカーソル位置 (9) へ挿入される
+    mockDispatch.mockClear();
+    const pasteFile = new File(["png"], "pasted.png", { type: "image/png" });
+    const pasteHandled = capturedHandlers.paste?.({
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => pasteFile }],
+      },
+      preventDefault: vi.fn(),
+    } as unknown as ClipboardEvent);
+
+    expect(pasteHandled).toBe(true);
+    await waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+    });
+    expect(mockDispatch.mock.calls[0][0].changes).toEqual({
+      from: 9,
+      to: 9,
+      insert: "![pasted](asset:img_fallback)",
+    });
   });
 });
