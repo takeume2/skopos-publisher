@@ -1327,6 +1327,14 @@ export function buildPagedMediaCss(
       color: #1d4ed8;
     }
 
+    .callout-title:last-child {
+      margin-bottom: 0;
+    }
+
+    .callout-title code {
+      font-size: 8pt;
+    }
+
     .callout-body p:last-child {
       margin-bottom: 0;
     }
@@ -1341,12 +1349,12 @@ export function buildPagedMediaCss(
     }
 
     .callout-tip {
-      border-left-color: #059669;
-      background-color: #ecfdf5;
+      border-left-color: #0d9488;
+      background-color: #f0fdfa;
     }
 
     .callout-tip .callout-title {
-      color: #047857;
+      color: #0f766e;
     }
 
     .callout-important {
@@ -1377,12 +1385,12 @@ export function buildPagedMediaCss(
     }
 
     .callout-success {
-      border-left-color: #059669;
-      background-color: #ecfdf5;
+      border-left-color: #16a34a;
+      background-color: #f0fdf4;
     }
 
     .callout-success .callout-title {
-      color: #065f46;
+      color: #15803d;
     }
 
     .doc-body code {

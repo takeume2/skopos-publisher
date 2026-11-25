@@ -50,4 +50,18 @@ describe("buildPagedMediaCss", () => {
     expect(css).toContain("print-color-adjust: exact;");
     expect(css).toContain("break-inside: avoid;");
   });
+
+  it("includes distinct styles for callout-caution, callout-summary, callout-success, and callout-tip", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(".callout-caution {");
+    expect(css).toContain(".callout-summary {");
+    expect(css).toContain(".callout-success {");
+    expect(css).toContain(".callout-tip {");
+    expect(css).toContain(".callout-title:last-child {");
+
+    // TIP（ティール系）と SUCCESS（グリーン系）が視覚的に差別化されていること
+    expect(css).toContain("border-left-color: #0d9488;");
+    expect(css).toContain("border-left-color: #16a34a;");
+  });
 });

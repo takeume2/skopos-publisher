@@ -234,4 +234,117 @@ back_cover: false
     expect(compiled.html).not.toContain("NaN%");
     expect(compiled.html).not.toContain("data-colorbar");
   });
+
+  it("renders all 7 callout types (including CAUTION, SUMMARY/ABSTRACT, SUCCESS) with default English labels and custom titles", async () => {
+    const md = `---
+title: "コールアウト検証"
+cover: false
+toc: false
+back_cover: false
+---
+
+> [!NOTE]
+> デフォルトノート
+
+> [!WARNING]
+> デフォルト警告
+
+> [!TIP]
+> デフォルトヒント
+
+> [!IMPORTANT]
+> デフォルト重要
+
+> [!CAUTION]
+> 危険な操作です
+
+> [!SUMMARY]
+> 要約テキスト
+
+> [!abstract]
+> ABSTRACT エイリアス
+
+> [!SUCCESS]
+> すべての基準に適合
+
+> [!CAUTION] コーション
+> カタカナタイトル本文
+
+> [!NOTE] **重要**な \`config.yml\` 補足
+> インライン記法入りタイトルの本文
+
+> [!SUCCESS] サクセス
+
+> [!SUMMARY] サマリー
+>
+> 空行区切りの本文
+
+> [!NOTE] <script>alert(1)</script> 安全タイトル
+> XSS 検証本文
+
+> 通常の引用文
+
+> [!NOTE]nospace
+> マーカー直後に空白なし
+
+> [!UNKNOWN] 未対応
+> 未対応タイプ
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    // 全 7 種のクラスとデフォルト英語ラベル（タイトル省略時）
+    expect(compiled.html).toContain(
+      '<div class="callout callout-note"><div class="callout-title">NOTE</div>'
+    );
+    expect(compiled.html).toContain(
+      '<div class="callout callout-warning"><div class="callout-title">WARNING</div>'
+    );
+    expect(compiled.html).toContain(
+      '<div class="callout callout-tip"><div class="callout-title">TIP</div>'
+    );
+    expect(compiled.html).toContain(
+      '<div class="callout callout-important"><div class="callout-title">IMPORTANT</div>'
+    );
+    expect(compiled.html).toContain(
+      '<div class="callout callout-caution"><div class="callout-title">CAUTION</div>'
+    );
+    expect(compiled.html).toContain(
+      '<div class="callout callout-summary"><div class="callout-title">SUMMARY</div>'
+    );
+    expect(compiled.html).toContain("ABSTRACT エイリアス");
+    expect(compiled.html).toContain(
+      '<div class="callout callout-success"><div class="callout-title">SUCCESS</div>'
+    );
+
+    // カタカナカスタムタイトル
+    expect(compiled.html).toContain(
+      '<div class="callout callout-caution"><div class="callout-title">コーション</div><div class="callout-body">\n<p>カタカナタイトル本文</p>\n</div></div>'
+    );
+
+    // インライン記法を含むカスタムタイトルが本文に漏れないこと
+    expect(compiled.html).toContain(
+      '<div class="callout-title"><strong>重要</strong>な <code>config.yml</code> 補足</div><div class="callout-body">\n<p>インライン記法入りタイトルの本文</p>\n</div>'
+    );
+
+    // タイトルのみコールアウトは空の callout-body を出力しないこと
+    expect(compiled.html).toContain(
+      '<div class="callout callout-success"><div class="callout-title">サクセス</div></div>'
+    );
+
+    // 空行区切りの本文
+    expect(compiled.html).toContain(
+      '<div class="callout callout-summary"><div class="callout-title">サマリー</div><div class="callout-body">\n\n<p>空行区切りの本文</p>\n</div></div>'
+    );
+
+    // カスタムタイトル内の XSS サニタイズ
+    expect(compiled.html).not.toContain("<script");
+    expect(compiled.html).toContain(
+      '<div class="callout-title">安全タイトル</div>'
+    );
+
+    // 通常引用・不正マーカーは blockquote のまま維持されること
+    expect(compiled.html).toContain("<blockquote>\n<p>通常の引用文</p>\n</blockquote>");
+    expect(compiled.html).toContain("<blockquote>\n<p>[!NOTE]nospace");
+    expect(compiled.html).toContain("<blockquote>\n<p>[!UNKNOWN] 未対応");
+  });
 });
