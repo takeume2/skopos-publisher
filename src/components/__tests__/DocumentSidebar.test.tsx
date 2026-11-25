@@ -6,6 +6,7 @@ import type {
   DocumentSummary,
   SharedAssetSummary,
 } from "@/hooks/useIndexedDbStorage";
+import type { OutlineHeading } from "@/lib/outline";
 
 afterEach(() => {
   cleanup();
@@ -144,5 +145,98 @@ describe("DocumentSidebar", () => {
       "cover_image",
       "asset:shared_logo_1"
     );
+  });
+
+  it("switches between documents and outline tabs within the same sidebar and invokes onSelectHeading", () => {
+    const onSelectHeading = vi.fn();
+    const headings: OutlineHeading[] = [
+      { id: "heading-1-0", level: 1, text: "第1章 概要", line: 1 },
+      { id: "heading-5-1", level: 2, text: "1.1 目的", line: 5 },
+      { id: "heading-10-2", level: 3, text: "1.1.1 補足", line: 10 },
+    ];
+
+    render(
+      <DocumentSidebar
+        isOpen={true}
+        activeDocId="doc_1"
+        activeFrontmatterAssets={{
+          logo: "",
+          cover_image: "",
+          back_cover_image: "",
+        }}
+        documents={[DOC_1]}
+        sharedAssets={[]}
+        headings={headings}
+        activeHeadingId="heading-5-1"
+        onSelectHeading={onSelectHeading}
+        onSelectDocument={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onExportDocument={vi.fn()}
+        onRequestDeleteDocument={vi.fn()}
+        onRequestDeleteAllDocuments={vi.fn()}
+        onAddSharedAsset={vi.fn()}
+        onApplySharedAsset={vi.fn()}
+        onRequestDeleteSharedAsset={vi.fn()}
+        onRequestDeleteAllSharedAssets={vi.fn()}
+      />
+    );
+
+    // 初期状態は文書タブが表示されている
+    expect(screen.getByText("新規文書を作成")).toBeTruthy();
+
+    // 見出し（アウトライン）タブへ切り替え
+    fireEvent.click(screen.getByRole("tab", { name: /見出し/ }));
+    expect(screen.queryByText("新規文書を作成")).toBeNull();
+    expect(screen.getByRole("navigation", { name: "見出しアウトライン" })).toBeTruthy();
+
+    const h1Btn = screen.getByRole("button", { name: /第1章 概要/ });
+    const h2Btn = screen.getByRole("button", { name: /1\.1 目的/ });
+    const h3Btn = screen.getByRole("button", { name: /1\.1\.1 補足/ });
+
+    // レベルに応じたインデント（H1 < H2 < H3）とアクティブ状態
+    const h1Pad = Number.parseInt(h1Btn.style.paddingLeft, 10);
+    const h2Pad = Number.parseInt(h2Btn.style.paddingLeft, 10);
+    const h3Pad = Number.parseInt(h3Btn.style.paddingLeft, 10);
+    expect(h1Pad).toBeLessThan(h2Pad);
+    expect(h2Pad).toBeLessThan(h3Pad);
+    expect(h2Btn.getAttribute("aria-current")).toBe("location");
+    expect(h1Btn.getAttribute("aria-current")).toBeNull();
+
+    // クリックで該当見出しを通知
+    fireEvent.click(h3Btn);
+    expect(onSelectHeading).toHaveBeenCalledWith(headings[2]);
+
+    // 文書タブへ戻せる
+    fireEvent.click(screen.getByRole("tab", { name: /文書/ }));
+    expect(screen.getByText("新規文書を作成")).toBeTruthy();
+  });
+
+  it("shows an empty-state message when the document has no headings", () => {
+    render(
+      <DocumentSidebar
+        isOpen={true}
+        activeDocId="doc_1"
+        activeFrontmatterAssets={{
+          logo: "",
+          cover_image: "",
+          back_cover_image: "",
+        }}
+        documents={[DOC_1]}
+        sharedAssets={[]}
+        headings={[]}
+        onSelectDocument={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onExportDocument={vi.fn()}
+        onRequestDeleteDocument={vi.fn()}
+        onRequestDeleteAllDocuments={vi.fn()}
+        onAddSharedAsset={vi.fn()}
+        onApplySharedAsset={vi.fn()}
+        onRequestDeleteSharedAsset={vi.fn()}
+        onRequestDeleteAllSharedAssets={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /見出し/ }));
+    expect(screen.getByText(/見出し（# 〜 ######）が見つかりません/)).toBeTruthy();
   });
 });

@@ -17,22 +17,95 @@ import { FormatSnippet, FormatToolbar } from "./FormatToolbar";
 const UNSUPPORTED_DROP_MESSAGE =
   "画像ファイル以外はドロップできません（.md の読込は上部ツールバーをご利用ください）";
 
+export interface EditorJumpRequest {
+  line: number;
+  requestId: number;
+}
+
 interface EditorPaneProps {
   value: string;
   onChange: (value: string) => void;
   onUploadImage?: (file: File) => Promise<string>;
+  jumpRequest?: EditorJumpRequest | null;
+  onCursorLineChange?: (line: number) => void;
 }
 
 export function EditorPane({
   value,
   onChange,
   onUploadImage,
+  jumpRequest,
+  onCursorLineChange,
 }: EditorPaneProps) {
   const editorRef = useRef<ReactCodeMirrorRef>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const dropNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastHandledJumpIdRef = useRef<number | null>(null);
+  const pendingJumpRef = useRef<EditorJumpRequest | null>(null);
+  const lastReportedLineRef = useRef<number>(1);
+  const onCursorLineChangeRef = useRef(onCursorLineChange);
+  onCursorLineChangeRef.current = onCursorLineChange;
   const [cursorInfo, setCursorInfo] = useState({ line: 1, col: 1 });
   const [dropNotice, setDropNotice] = useState<string | null>(null);
+
+  const executeJumpToLine = useCallback((view: EditorView, line: number) => {
+    const doc = view.state?.doc;
+    if (!doc || typeof doc.line !== "function") return;
+
+    const totalLines = Math.max(1, doc.lines ?? 1);
+    const clampedLine = Math.min(Math.max(1, Math.floor(line)), totalLines);
+    const lineInfo = doc.line(clampedLine);
+
+    const scrollEffect =
+      typeof EditorView.scrollIntoView === "function"
+        ? EditorView.scrollIntoView(lineInfo.from, { y: "start", yMargin: 24 })
+        : undefined;
+
+    if (scrollEffect) {
+      view.dispatch({
+        selection: { anchor: lineInfo.from, head: lineInfo.from },
+        effects: scrollEffect,
+      });
+    } else {
+      view.dispatch({
+        selection: { anchor: lineInfo.from, head: lineInfo.from },
+        scrollIntoView: true,
+      });
+    }
+    view.focus();
+
+    setCursorInfo({ line: clampedLine, col: 1 });
+    if (lastReportedLineRef.current !== clampedLine) {
+      lastReportedLineRef.current = clampedLine;
+      onCursorLineChangeRef.current?.(clampedLine);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!jumpRequest) return;
+    if (jumpRequest.requestId === lastHandledJumpIdRef.current) return;
+
+    const view = editorRef.current?.view;
+    if (view) {
+      lastHandledJumpIdRef.current = jumpRequest.requestId;
+      pendingJumpRef.current = null;
+      executeJumpToLine(view, jumpRequest.line);
+    } else {
+      pendingJumpRef.current = jumpRequest;
+    }
+  }, [executeJumpToLine, jumpRequest]);
+
+  const handleCreateEditor = useCallback(
+    (view: EditorView) => {
+      const pending = pendingJumpRef.current;
+      if (pending && pending.requestId !== lastHandledJumpIdRef.current) {
+        lastHandledJumpIdRef.current = pending.requestId;
+        pendingJumpRef.current = null;
+        executeJumpToLine(view, pending.line);
+      }
+    },
+    [executeJumpToLine]
+  );
 
   const showDropNotice = useCallback((message: string) => {
     if (dropNoticeTimerRef.current) {
@@ -187,6 +260,10 @@ export function EditorPane({
             line: line.number,
             col: head - line.from + 1,
           });
+          if (lastReportedLineRef.current !== line.number) {
+            lastReportedLineRef.current = line.number;
+            onCursorLineChangeRef.current?.(line.number);
+          }
         }
       }),
     ],
@@ -257,6 +334,7 @@ export function EditorPane({
           theme={oneDark}
           extensions={extensions}
           onChange={onChange}
+          onCreateEditor={handleCreateEditor}
           basicSetup={{
             lineNumbers: true,
             foldGutter: true,

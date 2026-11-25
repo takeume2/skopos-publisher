@@ -13,6 +13,12 @@ let mockSelection = { from: 0, to: 0, head: 0 };
 let mockDocLength = 100;
 const mockDispatch = vi.fn();
 const mockFocus = vi.fn();
+const mockScrollIntoView = vi.fn((pos: number, opts?: unknown) => ({
+  __mock: "scrollIntoView",
+  pos,
+  opts,
+}));
+let mockDocLines = ["# 見出し1", "本文", "## 見出し2", "詳細"];
 const mockPosAtCoords = vi.fn<
   (coords: { x: number; y: number }) => number | null
 >(() => null);
@@ -20,6 +26,8 @@ const mockPosAtCoords = vi.fn<
 vi.mock("@codemirror/view", () => ({
   EditorView: {
     lineWrapping: { __mock: "lineWrapping" },
+    scrollIntoView: (pos: number, opts?: unknown) =>
+      mockScrollIntoView(pos, opts),
     domEventHandlers: (handlers: DomHandlers) => {
       capturedHandlers = handlers;
       return { __mock: "domEventHandlers", handlers };
@@ -39,7 +47,23 @@ vi.mock("@uiw/react-codemirror", () => {
       React.useImperativeHandle(ref, () => ({
         view: {
           state: {
-            doc: { length: mockDocLength },
+            doc: {
+              length: mockDocLength,
+              lines: mockDocLines.length,
+              line: (lineNumber: number) => {
+                let offset = 0;
+                for (let i = 0; i < lineNumber - 1; i++) {
+                  offset += (mockDocLines[i]?.length ?? 0) + 1;
+                }
+                const text = mockDocLines[lineNumber - 1] ?? "";
+                return {
+                  number: lineNumber,
+                  from: offset,
+                  to: offset + text.length,
+                  text,
+                };
+              },
+            },
             selection: { main: mockSelection },
             sliceDoc: () => "",
           },
@@ -62,8 +86,10 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
     capturedHandlers = {};
     mockSelection = { from: 0, to: 0, head: 0 };
     mockDocLength = 100;
+    mockDocLines = ["# 見出し1", "本文", "## 見出し2", "詳細"];
     mockDispatch.mockClear();
     mockFocus.mockClear();
+    mockScrollIntoView.mockClear();
     mockPosAtCoords.mockReset();
     mockPosAtCoords.mockReturnValue(null);
   });
@@ -347,5 +373,61 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
       to: 9,
       insert: "![pasted](asset:img_fallback)",
     });
+  });
+
+  it("jumps cursor and scrolls to the requested heading line (#34)", () => {
+    mockDocLines = ["# 第1章", "本文1", "## 1.1 節", "本文2"];
+    const onCursorLineChange = vi.fn();
+
+    const { rerender } = render(
+      <EditorPane
+        value={mockDocLines.join("\n")}
+        onChange={vi.fn()}
+        jumpRequest={null}
+        onCursorLineChange={onCursorLineChange}
+      />
+    );
+
+    // 3行目 ("## 1.1 節") の先頭オフセット: "# 第1章\n"(6) + "本文1\n"(4) = 10
+    rerender(
+      <EditorPane
+        value={mockDocLines.join("\n")}
+        onChange={vi.fn()}
+        jumpRequest={{ line: 3, requestId: 1 }}
+        onCursorLineChange={onCursorLineChange}
+      />
+    );
+
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch.mock.calls[0][0]).toEqual({
+      selection: { anchor: 10, head: 10 },
+      effects: {
+        __mock: "scrollIntoView",
+        pos: 10,
+        opts: { y: "start", yMargin: 24 },
+      },
+    });
+    expect(mockFocus).toHaveBeenCalledTimes(1);
+    expect(onCursorLineChange).toHaveBeenCalledWith(3);
+    expect(screen.getByText("行 3, 列 1")).toBeTruthy();
+
+    // 範囲外の行番号は最終行へ安全にクランプされる
+    mockDispatch.mockClear();
+    rerender(
+      <EditorPane
+        value={mockDocLines.join("\n")}
+        onChange={vi.fn()}
+        jumpRequest={{ line: 999, requestId: 2 }}
+        onCursorLineChange={onCursorLineChange}
+      />
+    );
+
+    // 4行目 ("本文2") の先頭オフセット: 10 + "## 1.1 節\n"(9) = 19
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch.mock.calls[0][0].selection).toEqual({
+      anchor: 19,
+      head: 19,
+    });
+    expect(onCursorLineChange).toHaveBeenCalledWith(4);
   });
 });

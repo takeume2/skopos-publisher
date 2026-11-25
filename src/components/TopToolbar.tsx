@@ -75,8 +75,8 @@ export function TopToolbar({
           type="button"
           onClick={onToggleSidebar}
           aria-expanded={isSidebarOpen}
-          aria-label="文書一覧サイドバーを開閉"
-          title="文書一覧サイドバーを開閉"
+          aria-label="サイドバー（文書・見出し・共通画像）を開閉"
+          title="サイドバー（文書・見出し・共通画像）を開閉"
           className={`rounded-md border p-1.5 transition ${
             isSidebarOpen
               ? "border-sky-500/60 bg-sky-600/20 text-sky-300"
