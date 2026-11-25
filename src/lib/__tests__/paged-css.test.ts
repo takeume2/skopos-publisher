@@ -39,4 +39,15 @@ describe("buildPagedMediaCss", () => {
     expect(css).not.toContain("</style>");
     expect(css).toContain("@top-center { content: none; }");
   });
+
+  it("includes Flexbox and print-safe CSS rules for colorbars", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(".doc-colorbar {");
+    expect(css).toContain(".doc-colorbar-track {");
+    expect(css).toContain("display: flex;");
+    expect(css).toContain(".doc-colorbar-segment {");
+    expect(css).toContain("print-color-adjust: exact;");
+    expect(css).toContain("break-inside: avoid;");
+  });
 });

@@ -869,6 +869,114 @@ export function buildPagedMediaCss(
       color: #ffffff;
     }
 
+    /* カラーバー（割合積み上げ棒） */
+    .doc-colorbar {
+      margin: 4.5mm 0;
+      padding: 3mm 3.5mm;
+      border: 0.5pt solid var(--doc-border);
+      border-radius: 1.5mm;
+      background-color: var(--doc-bg-subtle);
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .doc-colorbar-track {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      width: 100%;
+      height: 7.5mm;
+      border-radius: 1.2mm;
+      overflow: hidden;
+      background-color: #e2e8f0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .doc-colorbar-segment {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      min-width: 0;
+      overflow: hidden;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .doc-colorbar-segment + .doc-colorbar-segment {
+      border-left: 0.5pt solid rgba(255, 255, 255, 0.78);
+    }
+
+    .doc-colorbar-segment-label {
+      padding: 0 1mm;
+      font-family: var(--doc-font-heading);
+      font-size: 7.2pt;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .doc-colorbar-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      font-size: 7.5pt;
+      color: var(--doc-muted);
+    }
+
+    .doc-colorbar-legend {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1.5mm 4mm;
+      margin-top: 2.5mm;
+      font-size: 8pt;
+      line-height: 1.35;
+      color: var(--doc-text);
+    }
+
+    .doc-colorbar-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 1.2mm;
+      white-space: nowrap;
+    }
+
+    .doc-colorbar-swatch {
+      display: inline-block;
+      width: 2.6mm;
+      height: 2.6mm;
+      border-radius: 0.6mm;
+      flex-shrink: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .doc-colorbar-legend-label {
+      font-weight: 600;
+      color: var(--doc-text);
+    }
+
+    .doc-colorbar-legend-value {
+      font-variant-numeric: tabular-nums;
+      color: var(--doc-muted);
+    }
+
+    .doc-colorbar-total {
+      margin-left: auto;
+      font-size: 7.5pt;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--doc-muted);
+    }
+
     .doc-body h1,
     .doc-body h2,
     .doc-body h3,

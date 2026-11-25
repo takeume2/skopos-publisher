@@ -3,6 +3,7 @@
 import React from "react";
 import {
   AlertTriangle,
+  BarChartHorizontal,
   Bold,
   BookMarked,
   ClipboardList,
@@ -90,6 +91,17 @@ export function FormatToolbar({
         label: "テーブル",
         before:
           "| 項目 | 内容 | 数値 |\n| :--- | :--- | ---: |\n| サンプル | 値 | 1,000 |\n",
+        block: true,
+      },
+    },
+    {
+      title: "カラーバー（割合積み上げ棒）<!-- colorbar: ... -->",
+      icon: <BarChartHorizontal className="h-3.5 w-3.5" />,
+      snippet: {
+        label: "カラーバー",
+        before: "<!-- colorbar: ",
+        after: " -->\n",
+        placeholder: "Critical=10, High=20, Medium=30, Low=40",
         block: true,
       },
     },

@@ -18,6 +18,11 @@ import type {
   TocEntry,
 } from "@/types/document";
 import { parseMarkdownDocument } from "./frontmatter";
+import {
+  formatColorBarNumber,
+  formatColorBarPercent,
+  parseColorBarSpec,
+} from "./colorbar";
 
 type CalloutType =
   | "note"
@@ -46,6 +51,7 @@ const SANITIZE_SCHEMA: NonNullable<Parameters<typeof rehypeSanitize>[0]> = {
       ...(defaultSchema.attributes?.div || []),
       ["className", "page-break"],
       ["dataChapterMarker", "start", "end"],
+      "dataColorbar",
     ],
     span: [
       ...(defaultSchema.attributes?.span || []),
@@ -1046,6 +1052,169 @@ function buildBackCoverHtml(
   `;
 }
 
+const COLORBAR_COMMENT_REGEX = /<!--\s*colorbar\s*:\s*([\s\S]*?)\s*-->/gi;
+
+function remarkColorBarMarkers() {
+  return (tree: unknown) => {
+    visit(
+      tree as Parameters<typeof visit>[0],
+      "html",
+      (node: { type: string; value?: string }) => {
+        if (typeof node.value !== "string") return;
+        COLORBAR_COMMENT_REGEX.lastIndex = 0;
+        if (!COLORBAR_COMMENT_REGEX.test(node.value)) return;
+        COLORBAR_COMMENT_REGEX.lastIndex = 0;
+        node.value = node.value.replace(
+          COLORBAR_COMMENT_REGEX,
+          (_match, spec: string) =>
+            `\n<div data-colorbar="${escapeHtml(spec.trim())}"></div>\n`
+        );
+      }
+    );
+  };
+}
+
+function rehypeColorBars() {
+  return (tree: Root) => {
+    visit(tree, "element", (node: Element, index, parent) => {
+      if (
+        node.tagName !== "div" ||
+        !parent ||
+        typeof index !== "number" ||
+        typeof node.properties?.dataColorbar !== "string"
+      ) {
+        return;
+      }
+
+      const parsed = parseColorBarSpec(node.properties.dataColorbar);
+      if (!parsed) {
+        parent.children.splice(index, 1);
+        return index;
+      }
+
+      const ariaSummary = parsed.segments
+        .map(
+          (seg) =>
+            `${seg.label} ${formatColorBarNumber(seg.value)} (${formatColorBarPercent(seg.displayPercent)})`
+        )
+        .join(", ");
+
+      const positiveSegments = parsed.segments.filter(
+        (seg) => seg.widthPercent > 0
+      );
+
+      const trackChildren: Element[] =
+        positiveSegments.length > 0
+          ? positiveSegments.map((seg) => ({
+              type: "element",
+              tagName: "div",
+              properties: {
+                className: ["doc-colorbar-segment"],
+                style: `width: ${seg.widthPercent}%; background-color: ${seg.color}; color: ${seg.textColor};`,
+                title: `${seg.label}: ${formatColorBarNumber(seg.value)} (${formatColorBarPercent(seg.displayPercent)})`,
+              },
+              children: seg.showInBarLabel
+                ? [
+                    {
+                      type: "element",
+                      tagName: "span",
+                      properties: {
+                        className: ["doc-colorbar-segment-label"],
+                      },
+                      children: [
+                        {
+                          type: "text",
+                          value: formatColorBarPercent(seg.displayPercent),
+                        },
+                      ],
+                    },
+                  ]
+                : [],
+            }))
+          : [
+              {
+                type: "element",
+                tagName: "div",
+                properties: { className: ["doc-colorbar-empty"] },
+                children: [{ type: "text", value: "0" }],
+              },
+            ];
+
+      const legendItems: Element[] = parsed.segments.map((seg) => ({
+        type: "element",
+        tagName: "span",
+        properties: { className: ["doc-colorbar-legend-item"] },
+        children: [
+          {
+            type: "element",
+            tagName: "span",
+            properties: {
+              className: ["doc-colorbar-swatch"],
+              style: `background-color: ${seg.color};`,
+              ariaHidden: "true",
+            },
+            children: [],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-colorbar-legend-label"] },
+            children: [{ type: "text", value: seg.label }],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-colorbar-legend-value"] },
+            children: [
+              {
+                type: "text",
+                value: `${formatColorBarNumber(seg.value)} (${formatColorBarPercent(seg.displayPercent)})`,
+              },
+            ],
+          },
+        ],
+      }));
+
+      legendItems.push({
+        type: "element",
+        tagName: "span",
+        properties: { className: ["doc-colorbar-total"] },
+        children: [
+          {
+            type: "text",
+            value: `計 ${formatColorBarNumber(parsed.total)}`,
+          },
+        ],
+      });
+
+      const figureNode: Element = {
+        type: "element",
+        tagName: "figure",
+        properties: {
+          className: ["doc-colorbar"],
+          ariaLabel: ariaSummary,
+        },
+        children: [
+          {
+            type: "element",
+            tagName: "div",
+            properties: { className: ["doc-colorbar-track"] },
+            children: trackChildren,
+          },
+          {
+            type: "element",
+            tagName: "figcaption",
+            properties: { className: ["doc-colorbar-legend"] },
+            children: legendItems,
+          },
+        ],
+      };
+
+      parent.children[index] = figureNode;
+    });
+  };
+}
+
 export async function compileMarkdownToHtml(
   markdown: string,
   assets: Record<string, string> = {}
@@ -1059,6 +1228,7 @@ export async function compileMarkdownToHtml(
     .use(remarkFrontmatter, ["yaml"])
     .use(remarkGfm)
     .use(remarkMath)
+    .use(remarkColorBarMarkers)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeSanitize, SANITIZE_SCHEMA)
@@ -1070,6 +1240,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeResolveAssets(assets))
     .use(rehypeCallouts)
     .use(rehypeBadges)
+    .use(rehypeColorBars)
     .use(rehypeHeadingHighlights)
     .use(rehypeCodeBlockLabels)
     .use(rehypeKatex, { trust: false, strict: false, maxExpand: 1000 })
