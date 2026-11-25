@@ -5,6 +5,7 @@ import {
   Download,
   FileText,
   Image as ImageIcon,
+  ListTree,
   Plus,
   Trash2,
   Upload,
@@ -13,8 +14,11 @@ import type {
   DocumentSummary,
   SharedAssetSummary,
 } from "@/hooks/useIndexedDbStorage";
+import type { OutlineHeading } from "@/lib/outline";
 
 export type SharedAssetRole = "logo" | "cover_image" | "back_cover_image";
+
+type SidebarTab = "docs" | "outline" | "assets";
 
 interface DocumentSidebarProps {
   isOpen: boolean;
@@ -26,6 +30,9 @@ interface DocumentSidebarProps {
   };
   documents: DocumentSummary[];
   sharedAssets: SharedAssetSummary[];
+  headings?: OutlineHeading[];
+  activeHeadingId?: string | null;
+  onSelectHeading?: (heading: OutlineHeading) => void;
   onSelectDocument: (docId: string) => void;
   onCreateDocument: () => void;
   onExportDocument: (docId: string) => void;
@@ -57,6 +64,9 @@ export function DocumentSidebar({
   activeFrontmatterAssets,
   documents,
   sharedAssets,
+  headings = [],
+  activeHeadingId = null,
+  onSelectHeading,
   onSelectDocument,
   onCreateDocument,
   onExportDocument,
@@ -67,7 +77,7 @@ export function DocumentSidebar({
   onRequestDeleteSharedAsset,
   onRequestDeleteAllSharedAssets,
 }: DocumentSidebarProps) {
-  const [activeTab, setActiveTab] = useState<"docs" | "assets">("docs");
+  const [activeTab, setActiveTab] = useState<SidebarTab>("docs");
   const sharedInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -77,41 +87,58 @@ export function DocumentSidebar({
 
   return (
     <aside
-      aria-label="文書と共通画像の管理"
+      aria-label="文書・見出し・共通画像の管理"
       className="no-print flex h-full w-[260px] shrink-0 flex-col border-r border-slate-800 bg-slate-900 text-slate-200"
     >
       <div
         role="tablist"
         aria-label="管理カテゴリ"
-        className="grid grid-cols-2 border-b border-slate-800 bg-slate-950/60 p-1 text-xs"
+        className="grid grid-cols-3 gap-0.5 border-b border-slate-800 bg-slate-950/60 p-1 text-[11px]"
       >
         <button
           type="button"
           role="tab"
           aria-selected={activeTab === "docs"}
           onClick={() => setActiveTab("docs")}
-          className={`flex items-center justify-center gap-1.5 rounded py-1.5 font-medium transition ${
+          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${
             activeTab === "docs"
               ? "bg-slate-800 text-white"
               : "text-slate-400 hover:text-slate-200"
           }`}
         >
-          <FileText className="h-3.5 w-3.5" />
-          <span>文書 ({documents.length})</span>
+          <FileText className="h-3.5 w-3.5 shrink-0" />
+          <span className="whitespace-nowrap">文書 ({documents.length})</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "outline"}
+          title="アウトライン（見出し一覧）"
+          onClick={() => setActiveTab("outline")}
+          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${
+            activeTab === "outline"
+              ? "bg-slate-800 text-white"
+              : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <ListTree className="h-3.5 w-3.5 shrink-0" />
+          <span className="whitespace-nowrap">見出し ({headings.length})</span>
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={activeTab === "assets"}
           onClick={() => setActiveTab("assets")}
-          className={`flex items-center justify-center gap-1.5 rounded py-1.5 font-medium transition ${
+          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${
             activeTab === "assets"
               ? "bg-slate-800 text-white"
               : "text-slate-400 hover:text-slate-200"
           }`}
         >
-          <ImageIcon className="h-3.5 w-3.5" />
-          <span>共通画像 ({sharedAssets.length})</span>
+          <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+          <span className="whitespace-nowrap">
+            共通画像 ({sharedAssets.length})
+          </span>
         </button>
       </div>
 
@@ -210,6 +237,94 @@ export function DocumentSidebar({
               <Trash2 className="h-3.5 w-3.5" />
               <span>全ドキュメントを消去・初期化</span>
             </button>
+          </div>
+        </>
+      ) : activeTab === "outline" ? (
+        <>
+          <div className="border-b border-slate-800 px-2.5 py-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-200">
+                アウトライン
+              </span>
+              <span className="font-mono text-[10px] text-slate-400">
+                {headings.length}件
+              </span>
+            </div>
+            <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+              見出しをクリックするとエディタの該当行へ移動します。
+            </p>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] p-2">
+            {headings.length === 0 ? (
+              <p className="px-2 py-6 text-center text-xs leading-relaxed text-slate-500">
+                見出し（# 〜 ######）が見つかりません。本文に見出しを追加するとここに一覧表示されます。
+              </p>
+            ) : (
+              <nav aria-label="見出しアウトライン">
+                <ul className="space-y-0.5">
+                  {headings.map((heading) => {
+                    const isActive = heading.id === activeHeadingId;
+                    const indentPx = 8 + (heading.level - 1) * 10;
+                    const levelTextClass =
+                      heading.level === 1
+                        ? "font-semibold text-slate-100 text-xs"
+                        : heading.level === 2
+                          ? "font-medium text-slate-200 text-xs"
+                          : heading.level === 3
+                            ? "text-slate-300 text-[11px]"
+                            : "text-slate-400 text-[11px]";
+
+                    return (
+                      <li key={heading.id}>
+                        <button
+                          type="button"
+                          onClick={() => onSelectHeading?.(heading)}
+                          aria-current={isActive ? "location" : undefined}
+                          data-heading-level={heading.level}
+                          data-heading-line={heading.line}
+                          title={`H${heading.level} (行 ${heading.line}): ${heading.text}`}
+                          style={{ paddingLeft: `${indentPx}px` }}
+                          className={`group flex w-full items-center gap-1.5 rounded-md border py-1.5 pr-2 text-left transition ${
+                            isActive
+                              ? "border-sky-500/60 bg-sky-950/45 text-sky-200"
+                              : "border-transparent hover:border-slate-800 hover:bg-slate-800/60"
+                          }`}
+                        >
+                          <span
+                            className={`shrink-0 font-mono text-[9px] uppercase ${
+                              isActive
+                                ? "text-sky-400"
+                                : "text-slate-500 group-hover:text-slate-400"
+                            }`}
+                          >
+                            H{heading.level}
+                          </span>
+                          <span
+                            className={`min-w-0 flex-1 truncate ${
+                              isActive
+                                ? "font-semibold text-sky-100"
+                                : levelTextClass
+                            }`}
+                          >
+                            {heading.text}
+                          </span>
+                          <span
+                            className={`shrink-0 font-mono text-[10px] ${
+                              isActive
+                                ? "text-sky-400/90"
+                                : "text-slate-600 group-hover:text-slate-400"
+                            }`}
+                          >
+                            L{heading.line}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </nav>
+            )}
           </div>
         </>
       ) : (

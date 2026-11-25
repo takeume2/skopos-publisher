@@ -10,11 +10,16 @@ import {
   parseMarkdownDocument,
   updateMarkdownFrontmatter,
 } from "@/lib/frontmatter";
+import {
+  extractOutlineHeadings,
+  findActiveOutlineHeadingId,
+  type OutlineHeading,
+} from "@/lib/outline";
 import { resolvePrintDocumentTitle } from "@/lib/print-title";
 import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
 import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
-import { EditorPane } from "./EditorPane";
+import { EditorJumpRequest, EditorPane } from "./EditorPane";
 import { PagedPreviewPane } from "./PagedPreviewPane";
 import { TopToolbar, ViewMode } from "./TopToolbar";
 
@@ -92,11 +97,14 @@ export function Workspace() {
   const [splitPercent, setSplitPercent] = useState<number>(46);
   const [modalState, setModalState] = useState<ModalState>(null);
   const [importedFilename, setImportedFilename] = useState<string | null>(null);
+  const [cursorLine, setCursorLine] = useState<number>(1);
+  const [jumpRequest, setJumpRequest] = useState<EditorJumpRequest | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const isResizingRef = useRef<boolean>(false);
   const previousDocumentTitleRef = useRef<string | null>(null);
+  const jumpRequestSeqRef = useRef<number>(0);
 
   const effectiveModal: ModalState = storageError
     ? {
@@ -126,6 +134,14 @@ export function Workspace() {
   }, [clearStorageError, storageError]);
 
   const parsed = useMemo(() => parseMarkdownDocument(markdown), [markdown]);
+  const outlineHeadings = useMemo(
+    () => extractOutlineHeadings(markdown),
+    [markdown]
+  );
+  const activeOutlineHeadingId = useMemo(
+    () => findActiveOutlineHeadingId(outlineHeadings, cursorLine),
+    [outlineHeadings, cursorLine]
+  );
 
   const printTitle = useMemo(
     () =>
@@ -140,7 +156,21 @@ export function Workspace() {
 
   useEffect(() => {
     setImportedFilename(null);
+    setCursorLine(1);
+    setJumpRequest(null);
   }, [activeDocId]);
+
+  const handleSelectOutlineHeading = useCallback(
+    (heading: OutlineHeading) => {
+      const requestId = ++jumpRequestSeqRef.current;
+      setCursorLine(heading.line);
+      setJumpRequest({ line: heading.line, requestId });
+      if (viewMode === "preview") {
+        setViewMode("split");
+      }
+    },
+    [viewMode]
+  );
 
   const handleFrontmatterChange = useCallback(
     (nextFm: DocumentFrontmatter) => {
@@ -404,6 +434,9 @@ export function Workspace() {
           }}
           documents={documentList}
           sharedAssets={sharedAssetList}
+          headings={outlineHeadings}
+          activeHeadingId={activeOutlineHeadingId}
+          onSelectHeading={handleSelectOutlineHeading}
           onSelectDocument={(docId) => void switchDocument(docId)}
           onCreateDocument={() => void createDocument()}
           onExportDocument={(docId) => void handleExportDocumentById(docId)}
@@ -445,6 +478,8 @@ export function Workspace() {
                 value={markdown}
                 onChange={setMarkdown}
                 onUploadImage={handleUploadInlineImage}
+                jumpRequest={jumpRequest}
+                onCursorLineChange={setCursorLine}
               />
             </div>
           )}
