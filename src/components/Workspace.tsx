@@ -585,6 +585,7 @@ export function Workspace() {
 
       <dialog
         ref={dialogRef}
+        {...({ closedby: "any" } as Record<string, string>)}
         onClose={closeModal}
         onClick={(e) => {
           if (e.target === dialogRef.current) {

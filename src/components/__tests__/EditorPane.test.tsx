@@ -459,4 +459,14 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
     });
     expect(mockDispatch).not.toHaveBeenCalled();
   });
+
+  it("applies tabular-nums to the editor status bar numeric counters (#56)", () => {
+    render(<EditorPane value={"# 見出し\n本文"} onChange={vi.fn()} />);
+
+    const cursorText = screen.getByText("行 1, 列 1");
+    const statusBar = cursorText.parentElement;
+    expect(statusBar?.classList.contains("tabular-nums")).toBe(true);
+    expect(screen.getByText(/文字数:/)).toBeTruthy();
+    expect(screen.getByText(/行数:/)).toBeTruthy();
+  });
 });
