@@ -213,7 +213,7 @@ export function FormatToolbar({
           type="button"
           title={btn.title}
           onClick={() => onInsert(btn.snippet)}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white"
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           {btn.icon}
         </button>
@@ -224,7 +224,7 @@ export function FormatToolbar({
           type="button"
           title="画像を挿入"
           onClick={onImageUploadClick}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white"
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <ImagePlus className="h-3.5 w-3.5" />
         </button>
@@ -243,7 +243,7 @@ export function FormatToolbar({
               block: true,
             })
           }
-          className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-500/10 px-2 py-1 text-xs font-medium text-indigo-300 transition hover:bg-indigo-500/20"
+          className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-500/10 px-2 py-1 text-xs font-medium text-indigo-300 transition hover:bg-indigo-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <BookMarked className="h-3.5 w-3.5" />
           <span>中扉</span>
@@ -259,7 +259,7 @@ export function FormatToolbar({
               block: true,
             })
           }
-          className="inline-flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20"
+          className="inline-flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <FilePlus2 className="h-3.5 w-3.5" />
           <span>改ページ</span>

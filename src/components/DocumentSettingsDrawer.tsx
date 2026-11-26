@@ -217,7 +217,7 @@ function ImageDropField({
               inputRef.current?.click();
             }
           }}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-md border border-dashed px-3 py-3 text-center transition ${
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-md border border-dashed px-3 py-3 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
             isDragging
               ? "border-sky-400 bg-sky-500/10"
               : "border-slate-700 bg-slate-950/60 hover:border-slate-500"
@@ -239,7 +239,7 @@ function ImageDropField({
               onChangeValue(e.target.value);
             }
           }}
-          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 focus:border-sky-500 focus:outline-none"
+          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <option value="">登録済みの共通画像から選択...</option>
           {sharedAssets.map((item) => (
@@ -384,7 +384,8 @@ export function DocumentSettingsDrawer({
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+          aria-label="ドキュメント設定を閉じる"
+          className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <X className="h-4 w-4" />
         </button>
@@ -423,7 +424,7 @@ export function DocumentSettingsDrawer({
                   rows={2}
                   value={frontmatter.title}
                   onChange={(e) => updateField("title", e.target.value)}
-                  className="w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs leading-relaxed text-white focus:border-sky-500 focus:outline-none"
+                  className="w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs leading-relaxed text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                 />
               </div>
 
@@ -435,7 +436,7 @@ export function DocumentSettingsDrawer({
                   type="text"
                   value={frontmatter.subtitle}
                   onChange={(e) => updateField("subtitle", e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                 />
               </div>
 
@@ -448,7 +449,7 @@ export function DocumentSettingsDrawer({
                     type="text"
                     value={frontmatter.author}
                     onChange={(e) => updateField("author", e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   />
                 </div>
                 <div>
@@ -459,7 +460,7 @@ export function DocumentSettingsDrawer({
                     type="text"
                     value={frontmatter.date}
                     onChange={(e) => updateField("date", e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   />
                 </div>
               </div>
@@ -473,7 +474,7 @@ export function DocumentSettingsDrawer({
                   placeholder="例: 株式会社〇〇 セキュリティ推進部 御中"
                   value={frontmatter.recipient}
                   onChange={(e) => updateField("recipient", e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                 />
               </div>
 
@@ -487,7 +488,7 @@ export function DocumentSettingsDrawer({
                     onChange={(e) =>
                       updateField("page_size", e.target.value as PageSize)
                     }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   >
                     <option value="A4">A4 (210×297mm)</option>
                     <option value="A5">A5 (148×210mm)</option>
@@ -508,7 +509,7 @@ export function DocumentSettingsDrawer({
                         e.target.value as PageOrientation
                       )
                     }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   >
                     <option value="portrait">縦 (Portrait)</option>
                     <option value="landscape">横 (Landscape)</option>
@@ -609,7 +610,7 @@ export function DocumentSettingsDrawer({
                       onChange={(e) =>
                         updateField("confidential_label", e.target.value)
                       }
-                      className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-amber-500 focus:outline-none"
+                      className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                     />
                   </div>
                   <div className="flex flex-wrap gap-1">
@@ -715,7 +716,7 @@ export function DocumentSettingsDrawer({
                   value={filenameTemplate}
                   placeholder={DEFAULT_FILENAME_TEMPLATE}
                   onChange={(e) => onChangeFilenameTemplate?.(e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-[11px] text-white focus:border-sky-500 focus:outline-none"
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-[11px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                 />
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {FILENAME_VARIABLE_CHIPS.map((chip) => (
@@ -826,7 +827,7 @@ export function DocumentSettingsDrawer({
                       key={card.id}
                       type="button"
                       onClick={() => updateField("theme", card.id)}
-                      className={`flex w-full items-center gap-3 rounded-md border p-2 text-left transition ${
+                      className={`flex w-full items-center gap-3 rounded-md border p-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
                         selected
                           ? "border-sky-500 bg-sky-500/10"
                           : "border-slate-700 bg-slate-950/70 hover:border-slate-600"
@@ -893,7 +894,7 @@ export function DocumentSettingsDrawer({
                         onChange={(e) =>
                           updateField("primary_color", e.target.value)
                         }
-                        className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 font-mono text-[10px] text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 font-mono text-[10px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                       />
                     </div>
                   </div>
@@ -918,7 +919,7 @@ export function DocumentSettingsDrawer({
                         onChange={(e) =>
                           updateField("accent_color", e.target.value)
                         }
-                        className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 font-mono text-[10px] text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 font-mono text-[10px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                       />
                     </div>
                   </div>
@@ -936,7 +937,7 @@ export function DocumentSettingsDrawer({
                         e.target.value as HeadingHighlightMode
                       )
                     }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   >
                     <option value="tinted">淡色ハイライト（推奨・テーマ連動）</option>
                     <option value="solid">濃色帯（H1強調・H2淡色）</option>
@@ -956,7 +957,7 @@ export function DocumentSettingsDrawer({
                         e.target.value as FontFamilyOption
                       )
                     }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   >
                     <option value="theme">テーマ標準</option>
                     <option value="sans">ゴシック体 (Sans-serif)</option>
@@ -1066,7 +1067,7 @@ export function DocumentSettingsDrawer({
                               e.target.value as CoverOverlayMode
                             )
                           }
-                          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                         >
                           <option value="light-fade">
                             明背景用（白フェード＋濃色文字）
@@ -1143,7 +1144,7 @@ export function DocumentSettingsDrawer({
                         onChange={(e) =>
                           updateField("back_cover_text", e.target.value)
                         }
-                        className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                       />
                     </div>
 
@@ -1216,7 +1217,7 @@ export function DocumentSettingsDrawer({
                     value={frontmatter.header_left}
                     onFocus={() => setFocusedField("header_left")}
                     onChange={(e) => updateField("header_left", e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   />
                 </div>
                 <div>
@@ -1230,7 +1231,7 @@ export function DocumentSettingsDrawer({
                     onChange={(e) =>
                       updateField("header_right", e.target.value)
                     }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   />
                 </div>
               </div>
@@ -1245,7 +1246,7 @@ export function DocumentSettingsDrawer({
                     value={frontmatter.footer_left}
                     onFocus={() => setFocusedField("footer_left")}
                     onChange={(e) => updateField("footer_left", e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   />
                 </div>
                 <div>
@@ -1259,7 +1260,7 @@ export function DocumentSettingsDrawer({
                     onChange={(e) =>
                       updateField("footer_right", e.target.value)
                     }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                   />
                 </div>
               </div>

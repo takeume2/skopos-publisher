@@ -538,7 +538,7 @@ export function PagedPreviewPane({
             onClick={() => setZoom((z) => Math.max(50, z - 10))}
             title="縮小"
             aria-label="プレビューを縮小"
-            className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+            className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <ZoomOut className="h-3.5 w-3.5" />
           </button>
@@ -551,14 +551,14 @@ export function PagedPreviewPane({
             step={5}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
-            className="h-1.5 w-20 cursor-pointer accent-sky-500"
+            className="h-1.5 w-20 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           />
 
           <button
             type="button"
             onClick={() => setZoom(100)}
             title="100% にリセット"
-            className="min-w-[44px] rounded bg-zinc-800 px-1.5 py-0.5 text-center font-mono text-[11px] hover:bg-zinc-700"
+            className="min-w-[44px] rounded bg-zinc-800 px-1.5 py-0.5 text-center font-mono text-[11px] hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             {zoom}%
           </button>
@@ -568,7 +568,7 @@ export function PagedPreviewPane({
             onClick={() => setZoom((z) => Math.min(200, z + 10))}
             title="拡大"
             aria-label="プレビューを拡大"
-            className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+            className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <ZoomIn className="h-3.5 w-3.5" />
           </button>
@@ -579,7 +579,7 @@ export function PagedPreviewPane({
             type="button"
             onClick={handleFitWidth}
             title="幅に合わせる (Fit Width)"
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white"
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <Maximize2 className="h-3 w-3" />
             <span className="hidden xl:inline">幅に合わせる</span>
@@ -589,7 +589,7 @@ export function PagedPreviewPane({
             type="button"
             onClick={handleFitPage}
             title="ページ全体を表示 (Fit Page)"
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white"
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <Minimize2 className="h-3 w-3" />
             <span className="hidden xl:inline">全体表示</span>
@@ -597,12 +597,17 @@ export function PagedPreviewPane({
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center rounded border border-zinc-700 bg-zinc-950 p-0.5">
+          <div
+            role="group"
+            aria-label="ページ表示レイアウト切替"
+            className="flex items-center rounded border border-zinc-700 bg-zinc-950 p-0.5"
+          >
             <button
               type="button"
+              aria-pressed={layoutMode === "single"}
               onClick={() => onLayoutModeChange("single")}
               title="単ページ縦並び"
-              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
                 layoutMode === "single"
                   ? "bg-zinc-800 text-white"
                   : "text-zinc-400 hover:text-zinc-200"
@@ -613,9 +618,10 @@ export function PagedPreviewPane({
             </button>
             <button
               type="button"
+              aria-pressed={layoutMode === "spread"}
               onClick={() => onLayoutModeChange("spread")}
               title="見開き表示"
-              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
                 layoutMode === "spread"
                   ? "bg-zinc-800 text-white"
                   : "text-zinc-400 hover:text-zinc-200"
@@ -635,7 +641,7 @@ export function PagedPreviewPane({
               disabled={currentPage <= 1}
               aria-label="前のページへ"
               onClick={() => scrollToPage(currentPage - 1)}
-              className="rounded p-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+              className="rounded p-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
@@ -653,7 +659,7 @@ export function PagedPreviewPane({
                   setPageInput(String(currentPage));
                 }
               }}
-              className="w-10 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-center font-mono text-[11px] text-white focus:border-sky-500 focus:outline-none"
+              className="w-10 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-center font-mono text-[11px] text-white focus-visible:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             />
             <span className="text-[11px] text-zinc-400">
               / {totalPages} ページ
@@ -663,7 +669,7 @@ export function PagedPreviewPane({
               disabled={currentPage >= totalPages}
               aria-label="次のページへ"
               onClick={() => scrollToPage(currentPage + 1)}
-              className="rounded p-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+              className="rounded p-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -682,9 +688,10 @@ export function PagedPreviewPane({
 
           <button
             type="button"
+            aria-pressed={showMarginGuides}
             onClick={() => onToggleMarginGuides(!showMarginGuides)}
             title="余白ガイド線の表示切替"
-            className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] transition ${
+            className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
               showMarginGuides
                 ? "border-sky-500/60 bg-sky-500/15 text-sky-300"
                 : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
@@ -699,7 +706,7 @@ export function PagedPreviewPane({
               type="checkbox"
               checked={autoUpdate}
               onChange={(e) => onToggleAutoUpdate(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 accent-sky-500"
+              className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             />
             <span>自動更新</span>
           </label>
@@ -708,10 +715,10 @@ export function PagedPreviewPane({
             type="button"
             onClick={handleManualRender}
             disabled={isRendering}
-            className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-700 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             {isRendering ? (
-              <Loader2 className="h-3 w-3 animate-spin text-sky-400" />
+              <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none text-sky-400" />
             ) : (
               <RefreshCw className="h-3 w-3" />
             )}
@@ -721,7 +728,10 @@ export function PagedPreviewPane({
       </div>
 
       {renderError && (
-        <div className="no-print border-b border-red-800 bg-red-950/80 px-4 py-2 text-xs text-red-200">
+        <div
+          role="alert"
+          className="no-print border-b border-red-800 bg-red-950/80 px-4 py-2 text-xs text-red-200"
+        >
           組版エラー: {renderError}
         </div>
       )}
@@ -741,7 +751,7 @@ export function PagedPreviewPane({
         {isRendering && (
           <div className="no-print pointer-events-none sticky top-3 z-10 flex justify-end px-4">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900/90 px-3 py-1 text-[11px] text-sky-300 shadow">
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />
               <span>ページネーション計算中...</span>
             </div>
           </div>

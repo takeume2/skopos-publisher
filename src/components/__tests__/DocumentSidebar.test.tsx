@@ -239,4 +239,68 @@ describe("DocumentSidebar", () => {
     fireEvent.click(screen.getByRole("tab", { name: /見出し/ }));
     expect(screen.getByText(/見出し（# 〜 ######）が見つかりません/)).toBeTruthy();
   });
+
+  it("supports WAI-ARIA tablist keyboard navigation (ArrowRight, ArrowLeft, Home, End) with roving tabIndex", () => {
+    render(
+      <DocumentSidebar
+        isOpen={true}
+        activeDocId="doc_1"
+        activeFrontmatterAssets={{
+          logo: "",
+          cover_image: "",
+          back_cover_image: "",
+        }}
+        documents={[DOC_1]}
+        sharedAssets={[SHARED_1]}
+        headings={[{ id: "h-1", level: 1, text: "はじめに", line: 1 }]}
+        onSelectDocument={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onExportDocument={vi.fn()}
+        onRequestDeleteDocument={vi.fn()}
+        onRequestDeleteAllDocuments={vi.fn()}
+        onAddSharedAsset={vi.fn()}
+        onApplySharedAsset={vi.fn()}
+        onRequestDeleteSharedAsset={vi.fn()}
+        onRequestDeleteAllSharedAssets={vi.fn()}
+      />
+    );
+
+    const docsTab = screen.getByRole("tab", { name: /文書/ });
+    const outlineTab = screen.getByRole("tab", { name: /見出し/ });
+    const assetsTab = screen.getByRole("tab", { name: /共通画像/ });
+
+    // Initial roving tabIndex: docs=0, others=-1
+    expect(docsTab.getAttribute("tabindex")).toBe("0");
+    expect(outlineTab.getAttribute("tabindex")).toBe("-1");
+    expect(assetsTab.getAttribute("tabindex")).toBe("-1");
+
+    // ArrowRight -> outline
+    docsTab.focus();
+    fireEvent.keyDown(docsTab, { key: "ArrowRight" });
+    expect(outlineTab.getAttribute("aria-selected")).toBe("true");
+    expect(outlineTab.getAttribute("tabindex")).toBe("0");
+    expect(docsTab.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(outlineTab);
+
+    // End -> assets
+    fireEvent.keyDown(outlineTab, { key: "End" });
+    expect(assetsTab.getAttribute("aria-selected")).toBe("true");
+    expect(assetsTab.getAttribute("tabindex")).toBe("0");
+    expect(document.activeElement).toBe(assetsTab);
+
+    // ArrowRight wraps -> docs
+    fireEvent.keyDown(assetsTab, { key: "ArrowRight" });
+    expect(docsTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(docsTab);
+
+    // ArrowLeft wraps -> assets
+    fireEvent.keyDown(docsTab, { key: "ArrowLeft" });
+    expect(assetsTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(assetsTab);
+
+    // Home -> docs
+    fireEvent.keyDown(assetsTab, { key: "Home" });
+    expect(docsTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(docsTab);
+  });
 });
