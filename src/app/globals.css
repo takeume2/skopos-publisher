@@ -209,7 +209,28 @@ dialog.mdpub-dialog::backdrop {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+
   dialog.mdpub-dialog {
     transition: none;
+  }
+
+  .no-print,
+  .no-print *,
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  summary,
+  details,
+  [role="tab"] {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

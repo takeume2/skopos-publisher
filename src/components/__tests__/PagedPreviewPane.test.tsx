@@ -371,4 +371,34 @@ describe("PagedPreviewPane double buffering & scroll preservation", () => {
     expect(previewQueue[0].polisher.destroy).toHaveBeenCalledTimes(1);
     expect(previewQueue[2].polisher.destroy).not.toHaveBeenCalled();
   });
+
+  it("exposes aria-pressed states on layout/margin toggles and role=alert on render errors", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      renderPane({
+        layoutMode: "spread",
+        showMarginGuides: true,
+      });
+
+      const singleBtn = screen.getByRole("button", { name: /単ページ/ });
+      const spreadBtn = screen.getByRole("button", { name: /見開き/ });
+      const marginBtn = screen.getByRole("button", { name: /余白ガイド/ });
+
+      expect(singleBtn.getAttribute("aria-pressed")).toBe("false");
+      expect(spreadBtn.getAttribute("aria-pressed")).toBe("true");
+      expect(marginBtn.getAttribute("aria-pressed")).toBe("true");
+
+      await waitFor(() => expect(previewQueue.length).toBe(1));
+      await act(async () => {
+        previewQueue[0].reject(new Error("テスト組版失敗"));
+      });
+
+      const alertEl = await screen.findByRole("alert");
+      expect(alertEl.textContent).toContain("テスト組版失敗");
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
 });

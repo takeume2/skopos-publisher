@@ -20,6 +20,11 @@ export type SharedAssetRole = "logo" | "cover_image" | "back_cover_image";
 
 type SidebarTab = "docs" | "outline" | "assets";
 
+const SIDEBAR_TABS: readonly SidebarTab[] = ["docs", "outline", "assets"] as const;
+
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400";
+
 interface DocumentSidebarProps {
   isOpen: boolean;
   activeDocId: string;
@@ -79,8 +84,35 @@ export function DocumentSidebar({
 }: DocumentSidebarProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>("docs");
   const sharedInputRef = useRef<HTMLInputElement>(null);
+  const tabRefs = useRef<Record<SidebarTab, HTMLButtonElement | null>>({
+    docs: null,
+    outline: null,
+    assets: null,
+  });
 
   if (!isOpen) return null;
+
+  const handleTabKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    currentIndex: number
+  ) => {
+    let nextIndex: number | null = null;
+    if (e.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % SIDEBAR_TABS.length;
+    } else if (e.key === "ArrowLeft") {
+      nextIndex = (currentIndex - 1 + SIDEBAR_TABS.length) % SIDEBAR_TABS.length;
+    } else if (e.key === "Home") {
+      nextIndex = 0;
+    } else if (e.key === "End") {
+      nextIndex = SIDEBAR_TABS.length - 1;
+    }
+    if (nextIndex === null) return;
+
+    e.preventDefault();
+    const nextTab = SIDEBAR_TABS[nextIndex];
+    setActiveTab(nextTab);
+    tabRefs.current[nextTab]?.focus();
+  };
 
   const totalDocsBytes = documents.reduce((sum, d) => sum + d.totalBytes, 0);
   const totalSharedBytes = sharedAssets.reduce((sum, a) => sum + a.bytes, 0);
@@ -96,11 +128,18 @@ export function DocumentSidebar({
         className="grid grid-cols-3 gap-0.5 border-b border-slate-800 bg-slate-950/60 p-1 text-[11px]"
       >
         <button
+          ref={(el) => {
+            tabRefs.current.docs = el;
+          }}
+          id="sidebar-tab-docs"
           type="button"
           role="tab"
           aria-selected={activeTab === "docs"}
+          aria-controls="sidebar-tabpanel-docs"
+          tabIndex={activeTab === "docs" ? 0 : -1}
           onClick={() => setActiveTab("docs")}
-          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${
+          onKeyDown={(e) => handleTabKeyDown(e, 0)}
+          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${FOCUS_RING} ${
             activeTab === "docs"
               ? "bg-slate-800 text-white"
               : "text-slate-400 hover:text-slate-200"
@@ -110,12 +149,19 @@ export function DocumentSidebar({
           <span className="whitespace-nowrap">文書 ({documents.length})</span>
         </button>
         <button
+          ref={(el) => {
+            tabRefs.current.outline = el;
+          }}
+          id="sidebar-tab-outline"
           type="button"
           role="tab"
           aria-selected={activeTab === "outline"}
+          aria-controls="sidebar-tabpanel-outline"
+          tabIndex={activeTab === "outline" ? 0 : -1}
           title="アウトライン（見出し一覧）"
           onClick={() => setActiveTab("outline")}
-          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${
+          onKeyDown={(e) => handleTabKeyDown(e, 1)}
+          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${FOCUS_RING} ${
             activeTab === "outline"
               ? "bg-slate-800 text-white"
               : "text-slate-400 hover:text-slate-200"
@@ -125,11 +171,18 @@ export function DocumentSidebar({
           <span className="whitespace-nowrap">見出し ({headings.length})</span>
         </button>
         <button
+          ref={(el) => {
+            tabRefs.current.assets = el;
+          }}
+          id="sidebar-tab-assets"
           type="button"
           role="tab"
           aria-selected={activeTab === "assets"}
+          aria-controls="sidebar-tabpanel-assets"
+          tabIndex={activeTab === "assets" ? 0 : -1}
           onClick={() => setActiveTab("assets")}
-          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${
+          onKeyDown={(e) => handleTabKeyDown(e, 2)}
+          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${FOCUS_RING} ${
             activeTab === "assets"
               ? "bg-slate-800 text-white"
               : "text-slate-400 hover:text-slate-200"
@@ -143,12 +196,17 @@ export function DocumentSidebar({
       </div>
 
       {activeTab === "docs" ? (
-        <>
+        <div
+          id="sidebar-tabpanel-docs"
+          role="tabpanel"
+          aria-labelledby="sidebar-tab-docs"
+          className="flex min-h-0 flex-1 flex-col"
+        >
           <div className="border-b border-slate-800 p-2.5">
             <button
               type="button"
               onClick={onCreateDocument}
-              className="flex w-full items-center justify-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500"
+              className={`flex w-full items-center justify-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500 ${FOCUS_RING}`}
             >
               <Plus className="h-3.5 w-3.5" />
               <span>新規文書を作成</span>
@@ -171,7 +229,7 @@ export function DocumentSidebar({
                   <button
                     type="button"
                     onClick={() => onSelectDocument(doc.id)}
-                    className="w-full text-left"
+                    className={`w-full rounded text-left ${FOCUS_RING}`}
                   >
                     <div className="truncate text-xs font-medium text-white">
                       {doc.title}
@@ -196,7 +254,7 @@ export function DocumentSidebar({
                         onClick={() => onExportDocument(doc.id)}
                         title="この文書を .md として保存"
                         aria-label={`${doc.title} を .md として保存`}
-                        className="rounded p-1 text-slate-300 hover:bg-slate-800 hover:text-white"
+                        className={`rounded p-1 text-slate-300 hover:bg-slate-800 hover:text-white ${FOCUS_RING}`}
                       >
                         <Download className="h-3 w-3" />
                       </button>
@@ -210,7 +268,7 @@ export function DocumentSidebar({
                             : "最後の1件は個別削除できません（リセットは「全ドキュメントを消去・初期化」を使用）"
                         }
                         aria-label={`${doc.title} を削除`}
-                        className="rounded p-1 text-red-400 hover:bg-red-950/60 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-35"
+                        className={`rounded p-1 text-red-400 hover:bg-red-950/60 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-35 ${FOCUS_RING}`}
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -232,15 +290,20 @@ export function DocumentSidebar({
               type="button"
               onClick={onRequestDeleteAllDocuments}
               disabled={documents.length === 0}
-              className="flex w-full items-center justify-center gap-1.5 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-950/70 disabled:opacity-40"
+              className={`flex w-full items-center justify-center gap-1.5 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-950/70 disabled:opacity-40 ${FOCUS_RING}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
               <span>全ドキュメントを消去・初期化</span>
             </button>
           </div>
-        </>
+        </div>
       ) : activeTab === "outline" ? (
-        <>
+        <div
+          id="sidebar-tabpanel-outline"
+          role="tabpanel"
+          aria-labelledby="sidebar-tab-outline"
+          className="flex min-h-0 flex-1 flex-col"
+        >
           <div className="border-b border-slate-800 px-2.5 py-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-200">
@@ -285,7 +348,7 @@ export function DocumentSidebar({
                           data-heading-line={heading.line}
                           title={`H${heading.level} (行 ${heading.line}): ${heading.text}`}
                           style={{ paddingLeft: `${indentPx}px` }}
-                          className={`group flex w-full items-center gap-1.5 rounded-md border py-1.5 pr-2 text-left transition ${
+                          className={`group flex w-full items-center gap-1.5 rounded-md border py-1.5 pr-2 text-left transition ${FOCUS_RING} ${
                             isActive
                               ? "border-sky-500/60 bg-sky-950/45 text-sky-200"
                               : "border-transparent hover:border-slate-800 hover:bg-slate-800/60"
@@ -326,9 +389,14 @@ export function DocumentSidebar({
               </nav>
             )}
           </div>
-        </>
+        </div>
       ) : (
-        <>
+        <div
+          id="sidebar-tabpanel-assets"
+          role="tabpanel"
+          aria-labelledby="sidebar-tab-assets"
+          className="flex min-h-0 flex-1 flex-col"
+        >
           <div className="space-y-2 border-b border-slate-800 p-2.5">
             <input
               ref={sharedInputRef}
@@ -344,7 +412,7 @@ export function DocumentSidebar({
             <button
               type="button"
               onClick={() => sharedInputRef.current?.click()}
-              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-100 transition hover:bg-slate-700"
+              className={`flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-100 transition hover:bg-slate-700 ${FOCUS_RING}`}
             >
               <Upload className="h-3.5 w-3.5 text-sky-400" />
               <span>共通画像を追加</span>
@@ -391,7 +459,7 @@ export function DocumentSidebar({
                         onClick={() => onRequestDeleteSharedAsset(asset)}
                         title="共通画像をライブラリから削除"
                         aria-label={`${asset.label} を削除`}
-                        className="rounded p-1.5 text-red-400 hover:bg-red-950/60"
+                        className={`rounded p-1.5 text-red-400 hover:bg-red-950/60 ${FOCUS_RING}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -400,8 +468,9 @@ export function DocumentSidebar({
                     <div className="mt-2 grid grid-cols-3 gap-1 border-t border-slate-800/80 pt-1.5 text-[10px]">
                       <button
                         type="button"
+                        aria-pressed={isLogo}
                         onClick={() => onApplySharedAsset("logo", asset.assetId)}
-                        className={`rounded border px-1 py-0.5 transition ${
+                        className={`rounded border px-1 py-0.5 transition ${FOCUS_RING} ${
                           isLogo
                             ? "border-sky-500 bg-sky-600/25 font-semibold text-sky-300"
                             : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
@@ -411,10 +480,11 @@ export function DocumentSidebar({
                       </button>
                       <button
                         type="button"
+                        aria-pressed={isCover}
                         onClick={() =>
                           onApplySharedAsset("cover_image", asset.assetId)
                         }
-                        className={`rounded border px-1 py-0.5 transition ${
+                        className={`rounded border px-1 py-0.5 transition ${FOCUS_RING} ${
                           isCover
                             ? "border-sky-500 bg-sky-600/25 font-semibold text-sky-300"
                             : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
@@ -424,10 +494,11 @@ export function DocumentSidebar({
                       </button>
                       <button
                         type="button"
+                        aria-pressed={isBackCover}
                         onClick={() =>
                           onApplySharedAsset("back_cover_image", asset.assetId)
                         }
-                        className={`rounded border px-1 py-0.5 transition ${
+                        className={`rounded border px-1 py-0.5 transition ${FOCUS_RING} ${
                           isBackCover
                             ? "border-sky-500 bg-sky-600/25 font-semibold text-sky-300"
                             : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
@@ -453,13 +524,13 @@ export function DocumentSidebar({
               type="button"
               onClick={onRequestDeleteAllSharedAssets}
               disabled={sharedAssets.length === 0}
-              className="flex w-full items-center justify-center gap-1.5 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-950/70 disabled:opacity-40"
+              className={`flex w-full items-center justify-center gap-1.5 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-950/70 disabled:opacity-40 ${FOCUS_RING}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
               <span>共通画像を全削除</span>
             </button>
           </div>
-        </>
+        </div>
       )}
     </aside>
   );
