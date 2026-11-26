@@ -23,6 +23,10 @@ import {
   FILENAME_VARIABLE_CHIPS,
   resolveFilenamePresetId,
 } from "@/lib/export-filename";
+import {
+  processUploadedImageFile,
+  type ImageUploadPurpose,
+} from "@/lib/image-processing";
 import { resolveAssetSrc } from "@/lib/markdown";
 import type { SharedAssetSummary } from "@/hooks/useIndexedDbStorage";
 import type {
@@ -53,6 +57,7 @@ interface DocumentSettingsDrawerProps {
   onChangeFrontmatter: (next: DocumentFrontmatter) => void;
   onSaveAsset: (assetId: string, dataUrl: string, label?: string) => Promise<void>;
   onRemoveAsset: (assetId: string) => Promise<void>;
+  onNotice?: (title: string, message: string) => void;
 }
 
 const VARIABLE_CHIPS = [
@@ -118,9 +123,11 @@ interface ImageDropFieldProps {
   value: string;
   resolvedSrc: string;
   assetPrefix: string;
+  uploadPurpose: ImageUploadPurpose;
   sharedAssets?: SharedAssetSummary[];
   onSave: (assetId: string, dataUrl: string, label?: string) => Promise<void>;
   onChangeValue: (nextVal: string) => void;
+  onError?: (title: string, message: string) => void;
 }
 
 function ImageDropField({
@@ -128,26 +135,31 @@ function ImageDropField({
   value,
   resolvedSrc,
   assetPrefix,
+  uploadPurpose,
   sharedAssets = [],
   onSave,
   onChangeValue,
+  onError,
 }: ImageDropFieldProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const processFile = (file: File) => {
-    if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      if (typeof reader.result === "string") {
-        const newId = `${assetPrefix}${Date.now()}_${Math.random()
-          .toString(36)
-          .slice(2, 5)}`;
-        await onSave(newId, reader.result, file.name);
-        onChangeValue(newId);
-      }
-    };
-    reader.readAsDataURL(file);
+  const processFile = async (file: File) => {
+    setLocalError(null);
+    try {
+      const processed = await processUploadedImageFile(file, uploadPurpose);
+      const newId = `${assetPrefix}${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 5)}`;
+      await onSave(newId, processed.dataUrl, file.name);
+      onChangeValue(newId);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "画像の読み込みに失敗しました。";
+      setLocalError(message);
+      onError?.("画像読み込みエラー", message);
+    }
   };
 
   return (
@@ -223,6 +235,7 @@ function ImageDropField({
           aria-label={`${label}を共通画像から選択`}
           onChange={(e) => {
             if (e.target.value) {
+              setLocalError(null);
               onChangeValue(e.target.value);
             }
           }}
@@ -235,6 +248,11 @@ function ImageDropField({
             </option>
           ))}
         </select>
+      )}
+      {localError && (
+        <p role="alert" className="text-[10px] leading-relaxed text-amber-300">
+          {localError}
+        </p>
       )}
     </div>
   );
@@ -251,6 +269,7 @@ export function DocumentSettingsDrawer({
   exportFilenamePreview,
   onChangeFrontmatter,
   onSaveAsset,
+  onNotice,
 }: DocumentSettingsDrawerProps) {
   const [openSections, setOpenSections] = useState({
     basic: true,
@@ -1028,9 +1047,11 @@ export function DocumentSettingsDrawer({
                       value={frontmatter.cover_image}
                       resolvedSrc={resolvedCoverImageSrc}
                       assetPrefix="asset:shared_cover_"
+                      uploadPurpose="cover"
                       sharedAssets={sharedAssets}
                       onSave={onSaveAsset}
                       onChangeValue={(val) => updateField("cover_image", val)}
+                      onError={onNotice}
                     />
                     {frontmatter.cover_image && (
                       <div>
@@ -1131,11 +1152,13 @@ export function DocumentSettingsDrawer({
                       value={frontmatter.back_cover_image}
                       resolvedSrc={resolvedBackCoverImageSrc}
                       assetPrefix="asset:shared_backcover_"
+                      uploadPurpose="cover"
                       sharedAssets={sharedAssets}
                       onSave={onSaveAsset}
                       onChangeValue={(val) =>
                         updateField("back_cover_image", val)
                       }
+                      onError={onNotice}
                     />
                   </div>
                 )}
@@ -1247,9 +1270,11 @@ export function DocumentSettingsDrawer({
                   value={frontmatter.logo}
                   resolvedSrc={resolvedLogoSrc}
                   assetPrefix="asset:shared_logo_"
+                  uploadPurpose="logo"
                   sharedAssets={sharedAssets}
                   onSave={onSaveAsset}
                   onChangeValue={(val) => updateField("logo", val)}
+                  onError={onNotice}
                 />
 
                 <div>

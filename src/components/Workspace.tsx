@@ -15,6 +15,11 @@ import {
   buildExportFilenameBasename,
 } from "@/lib/export-filename";
 import {
+  formatImageLimitMb,
+  MAX_FOLDER_TOTAL_IMAGE_BYTES,
+  processUploadedImageFile,
+} from "@/lib/image-processing";
+import {
   extractOutlineHeadings,
   findActiveOutlineHeadingId,
   type OutlineHeading,
@@ -41,21 +46,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-      } else {
-        reject(new Error(`Failed to read ${file.name}`));
-      }
-    };
-    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
-    reader.readAsDataURL(file);
-  });
 }
 
 function downloadMarkdownFile(filename: string, content: string) {
@@ -185,9 +175,9 @@ export function Workspace() {
 
   const handleUploadInlineImage = useCallback(
     async (file: File): Promise<string> => {
-      const dataUrl = await readFileAsDataUrl(file);
+      const processed = await processUploadedImageFile(file, "inline");
       const assetId = `asset:img_${Date.now()}`;
-      await saveAsset(assetId, dataUrl);
+      await saveAsset(assetId, processed.dataUrl);
       return assetId;
     },
     [saveAsset]
@@ -223,16 +213,33 @@ export function Workspace() {
       }
 
       const newAssets: Record<string, string> = {};
-      await Promise.all(
-        imageFiles.map(async (imgFile) => {
-          const dataUrl = await readFileAsDataUrl(imgFile);
+      const skippedReasons: string[] = [];
+      let totalAcceptedBytes = 0;
+
+      for (const imgFile of imageFiles) {
+        try {
+          const processed = await processUploadedImageFile(imgFile, "inline");
+          if (
+            totalAcceptedBytes + processed.finalBytes >
+            MAX_FOLDER_TOTAL_IMAGE_BYTES
+          ) {
+            skippedReasons.push(
+              `${imgFile.name}（合計サイズ上限 ${formatImageLimitMb(MAX_FOLDER_TOTAL_IMAGE_BYTES)} 超過）`
+            );
+            continue;
+          }
           const relRaw = imgFile.webkitRelativePath || imgFile.name;
           const parts = relRaw.split("/");
           const relPath =
             parts.length > 1 ? parts.slice(1).join("/") : relRaw;
-          newAssets[`rel:${relPath}`] = dataUrl;
-        })
-      );
+          newAssets[`rel:${relPath}`] = processed.dataUrl;
+          totalAcceptedBytes += processed.finalBytes;
+        } catch (err) {
+          skippedReasons.push(
+            err instanceof Error ? err.message : `${imgFile.name} の読込失敗`
+          );
+        }
+      }
 
       if (Object.keys(newAssets).length > 0) {
         await saveAssetsBatch(newAssets);
@@ -242,11 +249,22 @@ export function Workspace() {
         const mainMd = await mdFiles[0].text();
         setImportedFilename(mdFiles[0].name);
         setMarkdown(mainMd);
+        if (skippedReasons.length > 0) {
+          setModalState({
+            kind: "notice",
+            title: "一部画像をスキップしました",
+            message: `${Object.keys(newAssets).length} 件の画像を取り込み、${skippedReasons.length} 件をスキップしました: ${skippedReasons.slice(0, 3).join(" / ")}`,
+          });
+        }
       } else {
+        const skippedNote =
+          skippedReasons.length > 0
+            ? `（${skippedReasons.length} 件は上限超過等のためスキップ）`
+            : "";
         setModalState({
           kind: "notice",
           title: "画像アセットを取り込みました",
-          message: `${Object.keys(newAssets).length} 件の画像を取り込みました（.md ファイルは見つからなかったため現在の本文を維持します）。`,
+          message: `${Object.keys(newAssets).length} 件の画像を取り込みました${skippedNote}（.md ファイルは見つからなかったため現在の本文を維持します）。`,
         });
       }
     },
@@ -280,12 +298,22 @@ export function Workspace() {
 
   const handleAddSharedAsset = useCallback(
     async (file: File) => {
-      if (!file.type.startsWith("image/")) return;
-      const dataUrl = await readFileAsDataUrl(file);
-      const newId = `asset:shared_${Date.now()}_${Math.random()
-        .toString(36)
-        .slice(2, 5)}`;
-      await saveAsset(newId, dataUrl, file.name);
+      try {
+        const processed = await processUploadedImageFile(file, "shared");
+        const newId = `asset:shared_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 5)}`;
+        await saveAsset(newId, processed.dataUrl, file.name);
+      } catch (err) {
+        setModalState({
+          kind: "notice",
+          title: "共通画像の追加エラー",
+          message:
+            err instanceof Error
+              ? err.message
+              : "画像の読み込みに失敗しました。",
+        });
+      }
     },
     [saveAsset]
   );
@@ -549,6 +577,9 @@ export function Workspace() {
           onChangeFrontmatter={handleFrontmatterChange}
           onSaveAsset={saveAsset}
           onRemoveAsset={removeAsset}
+          onNotice={(title, message) =>
+            setModalState({ kind: "notice", title, message })
+          }
         />
       </div>
 

@@ -1,9 +1,9 @@
-import yaml from "js-yaml";
 import { parseMarkdownDocument } from "./frontmatter";
 import {
   normalizeSingleLineTitle,
   resolvePrintDocumentTitle,
 } from "./print-title";
+import { parseSafeYamlRecord } from "./yaml-safe";
 
 export const DEFAULT_FILENAME_TEMPLATE = "{date}_{title}_{confidential}";
 export const FALLBACK_EXPORT_BASENAME = "document";
@@ -135,15 +135,7 @@ function extractRawFrontmatterRecord(
   rawYaml: string
 ): Record<string, unknown> {
   if (!hasFrontmatter || !rawYaml.trim()) return {};
-  try {
-    const loaded = yaml.load(rawYaml);
-    if (loaded && typeof loaded === "object" && !Array.isArray(loaded)) {
-      return loaded as Record<string, unknown>;
-    }
-  } catch {
-    return {};
-  }
-  return {};
+  return parseSafeYamlRecord(rawYaml) ?? {};
 }
 
 function extractExplicitStringField(

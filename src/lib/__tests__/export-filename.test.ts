@@ -83,7 +83,7 @@ confidential_label: "社外秘"
       "20261126_議事録"
     );
 
-    // YAML 非クォート日付（js-yaml が Date として返すケース）
+    // YAML 非クォート日付（JSON_SCHEMA で安全に文字列として読み込まれるケース）
     const unquotedDateMd = `---\ntitle: "月次報告"\ndate: 2026-08-01\n---\n`;
     expect(buildExportFilenameBasename(unquotedDateMd, { now: FIXED_NOW })).toBe(
       "20260801_月次報告"
