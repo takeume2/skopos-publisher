@@ -143,10 +143,15 @@ describe("buildPagedMediaCss", () => {
     const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
 
     expect(css).toContain(".doc-asset-placeholder {");
+    expect(css).toContain("display: block;");
+    expect(css).toContain(".doc-asset-placeholder-inline {");
     expect(css).toContain(".doc-asset-placeholder-inner {");
     expect(css).toContain(".doc-asset-placeholder-icon {");
     expect(css).toContain(".doc-asset-placeholder-name {");
     expect(css).toContain(".doc-asset-placeholder-hint {");
     expect(css).toContain("border: 1.5pt dashed var(--doc-border);");
+    // 長大テーブルで Paged.js のレイアウト反復・欠落を防ぐため、table 全体ではなく tr 単位で改ページ抑止する
+    expect(css).toContain(".doc-body tr {");
+    expect(css).toContain("display: table-header-group;");
   });
 });

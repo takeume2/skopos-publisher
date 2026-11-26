@@ -799,11 +799,134 @@ export function resolveAssetSrc(
   return sanitizeImageUrl(trimmed, options);
 }
 
+function isSmallInlineDimension(cssValue: string | null): boolean {
+  if (!cssValue) return false;
+  const match = cssValue.trim().match(/^(\d+(?:\.\d+)?)(px|mm|cm|pt|in|em|rem)$/i);
+  if (!match) return false;
+  const num = Number.parseFloat(match[1]);
+  const unit = match[2].toLowerCase();
+  if (!Number.isFinite(num) || num <= 0) return false;
+  switch (unit) {
+    case "px":
+      return num <= 48;
+    case "mm":
+      return num <= 15;
+    case "cm":
+      return num <= 1.5;
+    case "pt":
+      return num <= 36;
+    case "in":
+      return num <= 0.6;
+    case "em":
+    case "rem":
+      return num <= 3;
+    default:
+      return false;
+  }
+}
+
+function isBlockPlaceholderNode(node: RootContent): boolean {
+  if (node.type !== "element" || node.tagName !== "figure") return false;
+  const classNames = node.properties?.className;
+  return Array.isArray(classNames) && classNames.includes("doc-asset-placeholder");
+}
+
+function trimSplitParagraphChildren(
+  children: Element["children"]
+): Element["children"] {
+  const result = children.slice();
+
+  while (result.length > 0) {
+    const first = result[0];
+    if (first.type === "text") {
+      const trimmed = first.value.replace(/^[\t\r\n ]+/, "");
+      if (!trimmed) {
+        result.shift();
+        continue;
+      }
+      result[0] = { type: "text", value: trimmed };
+      break;
+    }
+    if (first.type === "element" && first.tagName === "br") {
+      result.shift();
+      continue;
+    }
+    break;
+  }
+
+  while (result.length > 0) {
+    const last = result[result.length - 1];
+    if (last.type === "text") {
+      const trimmed = last.value.replace(/[\t\r\n ]+$/, "");
+      if (!trimmed) {
+        result.pop();
+        continue;
+      }
+      result[result.length - 1] = { type: "text", value: trimmed };
+      break;
+    }
+    if (last.type === "element" && last.tagName === "br") {
+      result.pop();
+      continue;
+    }
+    break;
+  }
+
+  return result;
+}
+
+function splitParagraphsAroundBlockPlaceholders(children: RootContent[]) {
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (child.type !== "element") continue;
+
+    if (
+      child.tagName === "p" &&
+      child.children.some((grandChild) => isBlockPlaceholderNode(grandChild))
+    ) {
+      const replacements: RootContent[] = [];
+      let inlineBuffer: Element["children"] = [];
+
+      const flushInline = () => {
+        const trimmed = trimSplitParagraphChildren(inlineBuffer);
+        inlineBuffer = [];
+        if (trimmed.length > 0) {
+          replacements.push({
+            type: "element",
+            tagName: "p",
+            properties: child.properties ? { ...child.properties } : {},
+            children: trimmed,
+          });
+        }
+      };
+
+      for (const grandChild of child.children) {
+        if (isBlockPlaceholderNode(grandChild)) {
+          flushInline();
+          replacements.push(grandChild);
+        } else {
+          inlineBuffer.push(grandChild);
+        }
+      }
+      flushInline();
+
+      children.splice(i, 1, ...replacements);
+      i += replacements.length - 1;
+      continue;
+    }
+
+    if (child.children && child.children.length > 0) {
+      splitParagraphsAroundBlockPlaceholders(child.children as RootContent[]);
+    }
+  }
+}
+
 function buildUnresolvedAssetPlaceholderNode(
   assetKey: string,
   alt: string,
   widthCss: string | null,
-  heightCss: string | null
+  heightCss: string | null,
+  mode: "block" | "inline" = "block"
 ): Element {
   const displayName = getAssetDisplayName(assetKey, alt);
   const styleParts: string[] = [];
@@ -814,8 +937,13 @@ function buildUnresolvedAssetPlaceholderNode(
     styleParts.push(`height: ${heightCss}`);
   }
 
+  const classNames =
+    mode === "inline"
+      ? ["doc-asset-placeholder", "doc-asset-placeholder-inline"]
+      : ["doc-asset-placeholder"];
+
   const properties: Element["properties"] = {
-    className: ["doc-asset-placeholder"],
+    className: classNames,
     dataAssetKey: assetKey,
     dataAssetLabel: displayName,
     role: "group",
@@ -825,14 +953,16 @@ function buildUnresolvedAssetPlaceholderNode(
     properties.style = `${styleParts.join("; ")};`;
   }
 
+  const innerTagName = mode === "inline" ? "span" : "div";
+
   return {
     type: "element",
-    tagName: "span",
+    tagName: mode === "inline" ? "span" : "figure",
     properties,
     children: [
       {
         type: "element",
-        tagName: "span",
+        tagName: innerTagName,
         properties: { className: ["doc-asset-placeholder-inner"] },
         children: [
           {
@@ -902,6 +1032,16 @@ function buildUnresolvedAssetPlaceholderNode(
   };
 }
 
+const BLOCK_PLACEHOLDER_PARENT_TAGS = new Set([
+  "div",
+  "section",
+  "article",
+  "main",
+  "blockquote",
+  "li",
+  "figure",
+]);
+
 function rehypeResolveAssets(assets: Record<string, string>) {
   return () => (tree: Root) => {
     visit(tree, "element", (node: Element, index, parent) => {
@@ -922,11 +1062,33 @@ function rehypeResolveAssets(assets: Record<string, string>) {
             typeof node.properties?.alt === "string" ? node.properties.alt : "";
           const widthCss = sanitizePlaceholderDimension(node.properties?.width);
           const heightCss = sanitizePlaceholderDimension(node.properties?.height);
+
+          let mode: "block" | "inline" = "inline";
+          if (parent.type === "root") {
+            mode = "block";
+          } else if (parent.type === "element") {
+            if (parent.tagName === "p") {
+              const hasOtherNonWhitespace = parent.children.some(
+                (sibling, sibIdx) =>
+                  sibIdx !== index &&
+                  (sibling.type !== "text" || sibling.value.trim().length > 0)
+              );
+              const isExplicitSmallIcon =
+                hasOtherNonWhitespace &&
+                (isSmallInlineDimension(widthCss) ||
+                  isSmallInlineDimension(heightCss));
+              mode = isExplicitSmallIcon ? "inline" : "block";
+            } else if (BLOCK_PLACEHOLDER_PARENT_TAGS.has(parent.tagName)) {
+              mode = "block";
+            }
+          }
+
           parent.children[index] = buildUnresolvedAssetPlaceholderNode(
             trimmedSrc,
             alt,
             widthCss,
-            heightCss
+            heightCss,
+            mode
           );
           return;
         }
@@ -940,6 +1102,8 @@ function rehypeResolveAssets(assets: Record<string, string>) {
         };
       }
     });
+
+    splitParagraphsAroundBlockPlaceholders(tree.children);
   };
 }
 

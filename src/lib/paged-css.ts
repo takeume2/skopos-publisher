@@ -192,6 +192,7 @@ export function buildPagedMediaCss(
   );
   const fullPageHeight = `calc(${pageHeight} - 0.3mm)`;
   const maxImageHeight = `calc(${pageHeight} - 52mm)`;
+  const maxPlaceholderHeight = `calc(${pageHeight} - 68mm)`;
 
   const isConfidential =
     fm.confidential_mode === "standard" || fm.confidential_mode === "strict";
@@ -1453,24 +1454,34 @@ export function buildPagedMediaCss(
     }
 
     .doc-asset-placeholder {
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      display: block;
       width: 100%;
       height: 48mm;
       max-width: 100%;
-      max-height: ${maxImageHeight};
+      max-height: ${maxPlaceholderHeight};
+      margin: 0 0 3.5mm 0;
       padding: 4mm;
       border: 1.5pt dashed var(--doc-border);
       border-radius: 2mm;
       background-color: var(--doc-bg-subtle);
       color: var(--doc-muted);
       text-align: center;
-      vertical-align: middle;
       overflow: hidden;
       break-inside: avoid;
       page-break-inside: avoid;
+    }
+
+    .doc-asset-placeholder-inline {
+      display: inline-block;
+      vertical-align: middle;
+      margin: 0;
+    }
+
+    .doc-body td .doc-asset-placeholder,
+    .doc-body th .doc-asset-placeholder {
+      display: block;
+      margin: 1mm 0;
+      height: 32mm;
     }
 
     .doc-asset-placeholder-inner {
@@ -1479,6 +1490,8 @@ export function buildPagedMediaCss(
       align-items: center;
       justify-content: center;
       gap: 1.5mm;
+      width: 100%;
+      height: 100%;
       max-width: 100%;
       pointer-events: none;
     }
@@ -1521,6 +1534,14 @@ export function buildPagedMediaCss(
       border-collapse: collapse;
       margin: 4.5mm 0;
       font-size: 9pt;
+      break-inside: auto;
+    }
+
+    .doc-body thead {
+      display: table-header-group;
+    }
+
+    .doc-body tr {
       break-inside: avoid;
       page-break-inside: avoid;
     }
