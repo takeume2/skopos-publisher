@@ -558,7 +558,7 @@ export function PagedPreviewPane({
             type="button"
             onClick={() => setZoom(100)}
             title="100% にリセット"
-            className="min-w-[44px] rounded bg-zinc-800 px-1.5 py-0.5 text-center font-mono text-[11px] hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            className="min-w-[44px] rounded bg-zinc-800 px-1.5 py-0.5 text-center font-mono tabular-nums text-[11px] hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             {zoom}%
           </button>
@@ -659,9 +659,9 @@ export function PagedPreviewPane({
                   setPageInput(String(currentPage));
                 }
               }}
-              className="w-10 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-center font-mono text-[11px] text-white focus-visible:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              className="w-10 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-center font-mono tabular-nums text-[11px] text-white focus-visible:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             />
-            <span className="text-[11px] text-zinc-400">
+            <span className="tabular-nums text-[11px] text-zinc-400">
               / {totalPages} ページ
             </span>
             <button
@@ -739,6 +739,7 @@ export function PagedPreviewPane({
       <div
         ref={measureHostRef}
         aria-hidden="true"
+        inert={true}
         className="no-print pointer-events-none fixed left-[-99999px] top-0 opacity-0"
         style={{ zoom: 1 }}
       />

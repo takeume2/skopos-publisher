@@ -353,7 +353,7 @@ export function EditorPane({
         />
       </div>
 
-      <div className="flex items-center justify-between border-t border-slate-800 bg-slate-900 px-3 py-1 text-[11px] text-slate-400">
+      <div className="flex items-center justify-between border-t border-slate-800 bg-slate-900 px-3 py-1 text-[11px] tabular-nums text-slate-400">
         <div className="flex items-center gap-4">
           <span>文字数: {value.length.toLocaleString()}</span>
           <span>行数: {lineCount.toLocaleString()}</span>

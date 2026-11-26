@@ -413,4 +413,21 @@ describe("PagedPreviewPane double buffering & scroll preservation", () => {
     );
     expect(cqLabels).toEqual(["幅に合わせる", "全体表示", "余白ガイド"]);
   });
+
+  it("marks off-screen measure host as inert and applies tabular-nums to numeric indicators (#56)", () => {
+    const { container } = renderPane();
+
+    const measureHost = container.querySelector('div[aria-hidden="true"]');
+    expect(measureHost).toBeTruthy();
+    expect(measureHost?.hasAttribute("inert")).toBe(true);
+
+    const zoomResetBtn = screen.getByTitle("100% にリセット");
+    expect(zoomResetBtn.classList.contains("tabular-nums")).toBe(true);
+
+    const pageInput = screen.getByLabelText("表示ページ番号");
+    expect(pageInput.classList.contains("tabular-nums")).toBe(true);
+
+    const totalPagesSpan = screen.getByText(/\/ \d+ ページ/);
+    expect(totalPagesSpan.classList.contains("tabular-nums")).toBe(true);
+  });
 });

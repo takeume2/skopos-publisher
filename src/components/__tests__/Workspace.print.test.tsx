@@ -259,4 +259,11 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
       });
     }
   });
+
+  it('sets closedby="any" on the modal <dialog> for native light-dismiss (#56)', () => {
+    const { container } = render(<Workspace />);
+    const dialog = container.querySelector("dialog.mdpub-dialog");
+    expect(dialog).toBeTruthy();
+    expect(dialog?.getAttribute("closedby")).toBe("any");
+  });
 });
