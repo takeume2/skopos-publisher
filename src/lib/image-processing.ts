@@ -79,15 +79,23 @@ export interface ImageCanvasLike {
   toDataURL(type?: string, quality?: number): string;
 }
 
+export interface ImageBitmapLike {
+  readonly width: number;
+  readonly height: number;
+  close(): void;
+}
+
 export interface LoadedImageLike {
   naturalWidth: number;
   naturalHeight: number;
   source: CanvasImageSource;
+  cleanup?: () => void;
 }
 
 export interface ProcessImageOptions {
   readAsDataUrl?: (file: File) => Promise<string>;
   loadImage?: (dataUrl: string) => Promise<LoadedImageLike | null>;
+  createImageBitmap?: (source: Blob) => Promise<ImageBitmapLike>;
   createCanvas?: () => ImageCanvasLike | null;
   quality?: number;
 }
@@ -225,6 +233,44 @@ function defaultCreateCanvas(): ImageCanvasLike | null {
   return document.createElement("canvas") as unknown as ImageCanvasLike;
 }
 
+async function loadImageForResize(
+  file: File,
+  dataUrl: string,
+  options: ProcessImageOptions
+): Promise<LoadedImageLike | null> {
+  const fallbackLoadImage = options.loadImage ?? defaultLoadImage;
+
+  // 既存テスト・呼び出し元が loadImage のみを明示指定した場合はそのまま優先する
+  if (options.loadImage && !options.createImageBitmap) {
+    return fallbackLoadImage(dataUrl);
+  }
+
+  const createBitmap =
+    options.createImageBitmap ??
+    (typeof globalThis.createImageBitmap === "function"
+      ? (blob: Blob) => globalThis.createImageBitmap(blob)
+      : undefined);
+
+  if (createBitmap) {
+    try {
+      const bitmap = await createBitmap(file);
+      if (bitmap.width > 0 && bitmap.height > 0) {
+        return {
+          naturalWidth: bitmap.width,
+          naturalHeight: bitmap.height,
+          source: bitmap as unknown as CanvasImageSource,
+          cleanup: () => bitmap.close(),
+        };
+      }
+      bitmap.close();
+    } catch {
+      // createImageBitmap 非対応形式・失敗時は従来の Image 経路へフォールバック
+    }
+  }
+
+  return fallbackLoadImage(dataUrl);
+}
+
 function resolveResizeOutputMime(file: Pick<File, "name" | "type">): string {
   const mime = file.type.toLowerCase();
   if (mime === "image/jpeg" || /\.jpe?g$/i.test(file.name)) {
@@ -282,12 +328,11 @@ export async function processUploadedImageFile(
     };
   }
 
-  const loadImage = options.loadImage ?? defaultLoadImage;
   const createCanvas = options.createCanvas ?? defaultCreateCanvas;
   const quality = options.quality ?? DEFAULT_RESIZE_QUALITY;
   const { maxDimension } = IMAGE_LIMITS[purpose];
 
-  const loaded = await loadImage(rawDataUrl);
+  const loaded = await loadImageForResize(file, rawDataUrl, options);
   if (!loaded) {
     return {
       dataUrl: rawDataUrl,
@@ -297,52 +342,14 @@ export async function processUploadedImageFile(
     };
   }
 
-  const target = computeResizedDimensions(
-    loaded.naturalWidth,
-    loaded.naturalHeight,
-    maxDimension
-  );
-
-  if (!target.resized) {
-    return {
-      dataUrl: rawDataUrl,
-      resized: false,
-      originalWidth: loaded.naturalWidth,
-      originalHeight: loaded.naturalHeight,
-      width: loaded.naturalWidth,
-      height: loaded.naturalHeight,
-      originalBytes,
-      finalBytes: estimateDataUrlBytes(rawDataUrl),
-    };
-  }
-
-  const canvas = createCanvas();
-  const ctx = canvas?.getContext("2d");
-  if (!canvas || !ctx) {
-    return {
-      dataUrl: rawDataUrl,
-      resized: false,
-      originalWidth: loaded.naturalWidth,
-      originalHeight: loaded.naturalHeight,
-      width: loaded.naturalWidth,
-      height: loaded.naturalHeight,
-      originalBytes,
-      finalBytes: estimateDataUrlBytes(rawDataUrl),
-    };
-  }
-
   try {
-    canvas.width = target.width;
-    canvas.height = target.height;
-    ctx.drawImage(loaded.source, 0, 0, target.width, target.height);
+    const target = computeResizedDimensions(
+      loaded.naturalWidth,
+      loaded.naturalHeight,
+      maxDimension
+    );
 
-    const outputMime = resolveResizeOutputMime(file);
-    const resizedDataUrl =
-      outputMime === "image/png"
-        ? canvas.toDataURL("image/png")
-        : canvas.toDataURL(outputMime, quality);
-
-    if (!resizedDataUrl || !resizedDataUrl.startsWith("data:image/")) {
+    if (!target.resized) {
       return {
         dataUrl: rawDataUrl,
         resized: false,
@@ -355,26 +362,68 @@ export async function processUploadedImageFile(
       };
     }
 
-    return {
-      dataUrl: resizedDataUrl,
-      resized: true,
-      originalWidth: loaded.naturalWidth,
-      originalHeight: loaded.naturalHeight,
-      width: target.width,
-      height: target.height,
-      originalBytes,
-      finalBytes: estimateDataUrlBytes(resizedDataUrl),
-    };
-  } catch {
-    return {
-      dataUrl: rawDataUrl,
-      resized: false,
-      originalWidth: loaded.naturalWidth,
-      originalHeight: loaded.naturalHeight,
-      width: loaded.naturalWidth,
-      height: loaded.naturalHeight,
-      originalBytes,
-      finalBytes: estimateDataUrlBytes(rawDataUrl),
-    };
+    const canvas = createCanvas();
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) {
+      return {
+        dataUrl: rawDataUrl,
+        resized: false,
+        originalWidth: loaded.naturalWidth,
+        originalHeight: loaded.naturalHeight,
+        width: loaded.naturalWidth,
+        height: loaded.naturalHeight,
+        originalBytes,
+        finalBytes: estimateDataUrlBytes(rawDataUrl),
+      };
+    }
+
+    try {
+      canvas.width = target.width;
+      canvas.height = target.height;
+      ctx.drawImage(loaded.source, 0, 0, target.width, target.height);
+
+      const outputMime = resolveResizeOutputMime(file);
+      const resizedDataUrl =
+        outputMime === "image/png"
+          ? canvas.toDataURL("image/png")
+          : canvas.toDataURL(outputMime, quality);
+
+      if (!resizedDataUrl || !resizedDataUrl.startsWith("data:image/")) {
+        return {
+          dataUrl: rawDataUrl,
+          resized: false,
+          originalWidth: loaded.naturalWidth,
+          originalHeight: loaded.naturalHeight,
+          width: loaded.naturalWidth,
+          height: loaded.naturalHeight,
+          originalBytes,
+          finalBytes: estimateDataUrlBytes(rawDataUrl),
+        };
+      }
+
+      return {
+        dataUrl: resizedDataUrl,
+        resized: true,
+        originalWidth: loaded.naturalWidth,
+        originalHeight: loaded.naturalHeight,
+        width: target.width,
+        height: target.height,
+        originalBytes,
+        finalBytes: estimateDataUrlBytes(resizedDataUrl),
+      };
+    } catch {
+      return {
+        dataUrl: rawDataUrl,
+        resized: false,
+        originalWidth: loaded.naturalWidth,
+        originalHeight: loaded.naturalHeight,
+        width: loaded.naturalWidth,
+        height: loaded.naturalHeight,
+        originalBytes,
+        finalBytes: estimateDataUrlBytes(rawDataUrl),
+      };
+    }
+  } finally {
+    loaded.cleanup?.();
   }
 }
