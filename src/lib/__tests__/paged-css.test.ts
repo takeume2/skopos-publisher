@@ -138,4 +138,15 @@ describe("buildPagedMediaCss", () => {
       ".doc-cover.has-cover-image .cover-title {\n        font-size: 22pt;\n      }"
     );
   });
+
+  it("includes placeholder box styles for unresolved asset: images (#25)", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(".doc-asset-placeholder {");
+    expect(css).toContain(".doc-asset-placeholder-inner {");
+    expect(css).toContain(".doc-asset-placeholder-icon {");
+    expect(css).toContain(".doc-asset-placeholder-name {");
+    expect(css).toContain(".doc-asset-placeholder-hint {");
+    expect(css).toContain("border: 1.5pt dashed var(--doc-border);");
+  });
 });

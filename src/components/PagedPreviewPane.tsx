@@ -2,7 +2,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   BookOpen,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -12,9 +14,11 @@ import {
   Minimize2,
   RefreshCw,
   ShieldAlert,
+  Upload,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { isFileDragEvent } from "@/lib/editor-drop";
 import { compileMarkdownToHtml, resolveAssetSrc } from "@/lib/markdown";
 import { buildPagedMediaCss } from "@/lib/paged-css";
 import {
@@ -23,6 +27,7 @@ import {
   escapeCssId,
   restorePreviewScrollSnapshot,
 } from "@/lib/preview-scroll";
+import type { UnresolvedAssetRef } from "@/lib/unresolved-assets";
 import type { LayoutMode } from "@/hooks/useIndexedDbStorage";
 import type { DocumentFrontmatter } from "@/types/document";
 
@@ -37,6 +42,13 @@ interface PagedPreviewPaneProps {
   onToggleMarginGuides: (value: boolean) => void;
   layoutMode: LayoutMode;
   onLayoutModeChange: (mode: LayoutMode) => void;
+  unresolvedAssets?: UnresolvedAssetRef[];
+  onDropFileOnPlaceholder?: (assetKey: string, file: File) => void | Promise<void>;
+  onDropFilesOnPreview?: (files: File[]) => void | Promise<void>;
+  restoreProgress?: { processed: number; total: number } | null;
+  restoreNotice?: string | null;
+  onDismissRestoreNotice?: () => void;
+  assetRestoreNonce?: number;
 }
 
 interface DestroyablePreviewer {
@@ -181,6 +193,24 @@ function destroyPreviewerSafely(previewer: DestroyablePreviewer | null) {
   }
 }
 
+function extractDroppedFiles(dataTransfer: DataTransfer | null): File[] {
+  if (!dataTransfer) return [];
+  if (dataTransfer.files && dataTransfer.files.length > 0) {
+    return Array.from(dataTransfer.files);
+  }
+  if (dataTransfer.items && dataTransfer.items.length > 0) {
+    const out: File[] = [];
+    for (const item of Array.from(dataTransfer.items)) {
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) out.push(file);
+      }
+    }
+    return out;
+  }
+  return [];
+}
+
 export function PagedPreviewPane({
   documentId,
   markdown,
@@ -192,6 +222,13 @@ export function PagedPreviewPane({
   onToggleMarginGuides,
   layoutMode,
   onLayoutModeChange,
+  unresolvedAssets = [],
+  onDropFileOnPlaceholder,
+  onDropFilesOnPreview,
+  restoreProgress = null,
+  restoreNotice = null,
+  onDismissRestoreNotice,
+  assetRestoreNonce = 0,
 }: PagedPreviewPaneProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previewHostRef = useRef<HTMLDivElement>(null);
@@ -199,6 +236,9 @@ export function PagedPreviewPane({
   const activePreviewerRef = useRef<DestroyablePreviewer | null>(null);
   const activeOverrideStyleRef = useRef<HTMLStyleElement | null>(null);
   const lastCommittedDocIdRef = useRef<string | null | undefined>(documentId);
+  const lastRestoreNonceRef = useRef<number>(assetRestoreNonce);
+  const dragDepthRef = useRef<number>(0);
+  const activeDropTargetRef = useRef<HTMLElement | null>(null);
   const renderIdRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMountedRef = useRef<boolean>(false);
@@ -209,6 +249,7 @@ export function PagedPreviewPane({
   const [pageInput, setPageInput] = useState<string>("1");
   const [isRendering, setIsRendering] = useState<boolean>(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = useState<boolean>(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -435,6 +476,20 @@ export function PagedPreviewPane({
   ]);
 
   useEffect(() => {
+    if (
+      assetRestoreNonce > 0 &&
+      assetRestoreNonce !== lastRestoreNonceRef.current
+    ) {
+      lastRestoreNonceRef.current = assetRestoreNonce;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      void renderDocument(markdown, documentId);
+    }
+  }, [assetRestoreNonce, documentId, markdown, renderDocument]);
+
+  useEffect(() => {
     return () => {
       hasMountedRef.current = false;
       renderIdRef.current++;
@@ -445,6 +500,92 @@ export function PagedPreviewPane({
       cleanupPagedStyles();
     };
   }, [cleanupPagedStyles]);
+
+  const clearPlaceholderHighlight = useCallback(() => {
+    if (activeDropTargetRef.current) {
+      activeDropTargetRef.current.classList.remove("is-drop-target");
+      activeDropTargetRef.current = null;
+    }
+  }, []);
+
+  const handlePreviewDragEnter = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isFileDragEvent(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setIsDraggingFiles(true);
+    },
+    []
+  );
+
+  const handlePreviewDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isFileDragEvent(e.dataTransfer)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+
+      const itemCount =
+        e.dataTransfer.items?.length || e.dataTransfer.files?.length || 0;
+      const targetEl = e.target as HTMLElement | null;
+      const placeholderEl =
+        itemCount <= 1
+          ? targetEl?.closest<HTMLElement>("[data-asset-key]") ?? null
+          : null;
+
+      if (activeDropTargetRef.current !== placeholderEl) {
+        clearPlaceholderHighlight();
+        if (placeholderEl) {
+          placeholderEl.classList.add("is-drop-target");
+          activeDropTargetRef.current = placeholderEl;
+        }
+      }
+    },
+    [clearPlaceholderHighlight]
+  );
+
+  const handlePreviewDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isFileDragEvent(e.dataTransfer)) return;
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) {
+        setIsDraggingFiles(false);
+        clearPlaceholderHighlight();
+      }
+    },
+    [clearPlaceholderHighlight]
+  );
+
+  const handlePreviewDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isFileDragEvent(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setIsDraggingFiles(false);
+      clearPlaceholderHighlight();
+
+      const files = extractDroppedFiles(e.dataTransfer);
+      if (files.length === 0) return;
+
+      const targetEl = e.target as HTMLElement | null;
+      const placeholderEl = targetEl?.closest<HTMLElement>("[data-asset-key]");
+      const targetAssetKey =
+        placeholderEl?.getAttribute("data-asset-key")?.trim() || "";
+
+      if (targetAssetKey && files.length === 1 && onDropFileOnPlaceholder) {
+        void onDropFileOnPlaceholder(targetAssetKey, files[0]);
+        return;
+      }
+
+      if (onDropFilesOnPreview) {
+        void onDropFilesOnPreview(files);
+      }
+    },
+    [
+      clearPlaceholderHighlight,
+      onDropFileOnPlaceholder,
+      onDropFilesOnPreview,
+    ]
+  );
 
   const handleManualRender = useCallback(() => {
     if (debounceTimerRef.current) {
@@ -727,6 +868,43 @@ export function PagedPreviewPane({
         </div>
       </div>
 
+      {unresolvedAssets.length > 0 && (
+        <div
+          role="status"
+          className="no-print flex items-center justify-between gap-2 border-b border-amber-500/40 bg-amber-950/75 px-3 py-1.5 text-[11px] text-amber-200"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+            <span className="truncate">
+              未解決の画像が {unresolvedAssets.length} 件あります — 画像ファイルをプレビューへドロップで一括復元（各枠へ直接ドロップで個別置換）
+            </span>
+          </div>
+        </div>
+      )}
+
+      {restoreNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="no-print flex items-center justify-between gap-2 border-b border-emerald-600/40 bg-emerald-950/75 px-3 py-1.5 text-[11px] text-emerald-200"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+            <span className="truncate">{restoreNotice}</span>
+          </div>
+          {onDismissRestoreNotice && (
+            <button
+              type="button"
+              onClick={onDismissRestoreNotice}
+              aria-label="復元通知を閉じる"
+              className="rounded px-1.5 py-0.5 text-emerald-300 hover:bg-emerald-900/60 hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+
       {renderError && (
         <div
           role="alert"
@@ -747,8 +925,38 @@ export function PagedPreviewPane({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="print-scroll-container relative min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable] bg-zinc-800"
+        onDragEnter={handlePreviewDragEnter}
+        onDragOver={handlePreviewDragOver}
+        onDragLeave={handlePreviewDragLeave}
+        onDrop={handlePreviewDrop}
+        className={`print-scroll-container relative min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable] bg-zinc-800 ${
+          isDraggingFiles ? "ring-2 ring-inset ring-sky-400/80" : ""
+        }`}
       >
+        {isDraggingFiles && (
+          <div className="no-print pointer-events-none sticky top-3 z-20 flex justify-center px-4">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/70 bg-slate-900/95 px-3.5 py-1.5 text-xs font-medium text-sky-200 shadow-lg">
+              <Upload className="h-3.5 w-3.5 text-sky-400" />
+              <span>
+                {unresolvedAssets.length > 0
+                  ? `ドロップして未解決画像（${unresolvedAssets.length}件）を復元`
+                  : "ドロップされた画像を未解決プレースホルダと照合します"}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {restoreProgress && (
+          <div className="no-print pointer-events-none sticky top-3 z-20 flex justify-end px-4">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/60 bg-slate-900/95 px-3 py-1 text-[11px] tabular-nums text-sky-200 shadow">
+              <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none text-sky-400" />
+              <span>
+                画像を復元中... ({restoreProgress.processed} / {restoreProgress.total})
+              </span>
+            </div>
+          </div>
+        )}
+
         {isRendering && (
           <div className="no-print pointer-events-none sticky top-3 z-10 flex justify-end px-4">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900/90 px-3 py-1 text-[11px] text-sky-300 shadow">

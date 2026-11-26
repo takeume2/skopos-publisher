@@ -38,6 +38,10 @@ import {
   CHART_SVG_SIZE,
   type ChartKind,
 } from "./pie-chart";
+import {
+  getAssetDisplayName,
+  sanitizePlaceholderDimension,
+} from "./unresolved-assets";
 
 type CalloutType =
   | "note"
@@ -795,14 +799,137 @@ export function resolveAssetSrc(
   return sanitizeImageUrl(trimmed, options);
 }
 
+function buildUnresolvedAssetPlaceholderNode(
+  assetKey: string,
+  alt: string,
+  widthCss: string | null,
+  heightCss: string | null
+): Element {
+  const displayName = getAssetDisplayName(assetKey, alt);
+  const styleParts: string[] = [];
+  if (widthCss) {
+    styleParts.push(`width: ${widthCss}`);
+  }
+  if (heightCss) {
+    styleParts.push(`height: ${heightCss}`);
+  }
+
+  const properties: Element["properties"] = {
+    className: ["doc-asset-placeholder"],
+    dataAssetKey: assetKey,
+    dataAssetLabel: displayName,
+    role: "group",
+    ariaLabel: `未解決の画像: ${displayName}（画像をドロップして復元）`,
+  };
+  if (styleParts.length > 0) {
+    properties.style = `${styleParts.join("; ")};`;
+  }
+
+  return {
+    type: "element",
+    tagName: "span",
+    properties,
+    children: [
+      {
+        type: "element",
+        tagName: "span",
+        properties: { className: ["doc-asset-placeholder-inner"] },
+        children: [
+          {
+            type: "element",
+            tagName: "svg",
+            properties: {
+              className: ["doc-asset-placeholder-icon"],
+              viewBox: "0 0 24 24",
+              width: "28",
+              height: "28",
+              fill: "none",
+              stroke: "currentColor",
+              strokeWidth: "1.6",
+              strokeLinecap: "round",
+              strokeLinejoin: "round",
+              ariaHidden: "true",
+            },
+            children: [
+              {
+                type: "element",
+                tagName: "rect",
+                properties: {
+                  x: "3",
+                  y: "3",
+                  width: "18",
+                  height: "18",
+                  rx: "2",
+                  ry: "2",
+                },
+                children: [],
+              },
+              {
+                type: "element",
+                tagName: "circle",
+                properties: {
+                  cx: "8.5",
+                  cy: "8.5",
+                  r: "1.5",
+                },
+                children: [],
+              },
+              {
+                type: "element",
+                tagName: "polyline",
+                properties: {
+                  points: "21 15 16 10 5 21",
+                },
+                children: [],
+              },
+            ],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-asset-placeholder-name"] },
+            children: [{ type: "text", value: displayName }],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-asset-placeholder-hint"] },
+            children: [{ type: "text", value: "画像をドロップして復元" }],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function rehypeResolveAssets(assets: Record<string, string>) {
   return () => (tree: Root) => {
-    visit(tree, "element", (node: Element) => {
+    visit(tree, "element", (node: Element, index, parent) => {
       if (node.tagName !== "img") return;
       const src = node.properties?.src;
       if (typeof src !== "string") return;
-      const resolved = resolveAssetSrc(src, assets, { allowRelativePath: true });
+      const trimmedSrc = src.trim();
+      const resolved = resolveAssetSrc(trimmedSrc, assets, {
+        allowRelativePath: true,
+      });
       if (!resolved) {
+        if (
+          trimmedSrc.startsWith("asset:") &&
+          parent &&
+          typeof index === "number"
+        ) {
+          const alt =
+            typeof node.properties?.alt === "string" ? node.properties.alt : "";
+          const widthCss = sanitizePlaceholderDimension(node.properties?.width);
+          const heightCss = sanitizePlaceholderDimension(node.properties?.height);
+          parent.children[index] = buildUnresolvedAssetPlaceholderNode(
+            trimmedSrc,
+            alt,
+            widthCss,
+            heightCss
+          );
+          return;
+        }
         const nextProps = { ...node.properties };
         delete nextProps.src;
         node.properties = nextProps;

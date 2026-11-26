@@ -24,6 +24,11 @@ import {
   findActiveOutlineHeadingId,
   type OutlineHeading,
 } from "@/lib/outline";
+import {
+  extractUnresolvedAssetRefs,
+  matchDroppedFilesToUnresolvedAssets,
+  type UnresolvedAssetRef,
+} from "@/lib/unresolved-assets";
 import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
 import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
@@ -36,11 +41,24 @@ const MARKDOWN_EXTENSIONS = /\.(md|markdown)$/i;
 
 type ModalState =
   | { kind: "notice"; title: string; message: string }
+  | {
+      kind: "asset-drop-result";
+      restoredCount: number;
+      unmatchedFileNames: string[];
+      skippedErrors: string[];
+      hadUnresolvedPlaceholders: boolean;
+    }
+  | {
+      kind: "print-unresolved-assets";
+      items: UnresolvedAssetRef[];
+    }
   | { kind: "delete-doc"; doc: DocumentSummary }
   | { kind: "delete-all-docs"; count: number; totalBytes: number }
   | { kind: "delete-shared-asset"; asset: SharedAssetSummary }
   | { kind: "delete-all-shared-assets"; count: number }
   | null;
+
+const BULK_ASSET_RESTORE_CONCURRENCY = 4;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -91,12 +109,19 @@ export function Workspace() {
   const [importedFilename, setImportedFilename] = useState<string | null>(null);
   const [cursorLine, setCursorLine] = useState<number>(1);
   const [jumpRequest, setJumpRequest] = useState<EditorJumpRequest | null>(null);
+  const [restoreProgress, setRestoreProgress] = useState<{
+    processed: number;
+    total: number;
+  } | null>(null);
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
+  const [assetRestoreNonce, setAssetRestoreNonce] = useState<number>(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const isResizingRef = useRef<boolean>(false);
   const previousDocumentTitleRef = useRef<string | null>(null);
   const jumpRequestSeqRef = useRef<number>(0);
+  const restoreNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectiveModal: ModalState = storageError
     ? {
@@ -111,10 +136,18 @@ export function Workspace() {
     if (!dialogEl) return;
     if (effectiveModal) {
       if (!dialogEl.open) {
-        dialogEl.showModal();
+        if (typeof dialogEl.showModal === "function") {
+          dialogEl.showModal();
+        } else {
+          dialogEl.setAttribute("open", "");
+        }
       }
     } else if (dialogEl.open) {
-      dialogEl.close();
+      if (typeof dialogEl.close === "function") {
+        dialogEl.close();
+      } else {
+        dialogEl.removeAttribute("open");
+      }
     }
   }, [effectiveModal]);
 
@@ -134,6 +167,30 @@ export function Workspace() {
     () => findActiveOutlineHeadingId(outlineHeadings, cursorLine),
     [outlineHeadings, cursorLine]
   );
+  const unresolvedAssets = useMemo(
+    () => extractUnresolvedAssetRefs(markdown, assets),
+    [markdown, assets]
+  );
+
+  const showRestoreNotice = useCallback((message: string) => {
+    if (restoreNoticeTimerRef.current) {
+      clearTimeout(restoreNoticeTimerRef.current);
+    }
+    setRestoreNotice(message);
+    restoreNoticeTimerRef.current = setTimeout(() => {
+      setRestoreNotice(null);
+      restoreNoticeTimerRef.current = null;
+    }, 5000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (restoreNoticeTimerRef.current) {
+        clearTimeout(restoreNoticeTimerRef.current);
+        restoreNoticeTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const exportBasename = useMemo(
     () =>
@@ -151,6 +208,7 @@ export function Workspace() {
     setImportedFilename(null);
     setCursorLine(1);
     setJumpRequest(null);
+    setRestoreNotice(null);
   }, [activeDocId]);
 
   const handleSelectOutlineHeading = useCallback(
@@ -181,6 +239,141 @@ export function Workspace() {
       return assetId;
     },
     [saveAsset]
+  );
+
+  const handleDropFileOnPlaceholder = useCallback(
+    async (assetKey: string, file: File) => {
+      try {
+        const processed = await processUploadedImageFile(file, "inline");
+        await saveAsset(assetKey, processed.dataUrl);
+        setAssetRestoreNonce((n) => n + 1);
+        const keyLabel = assetKey.startsWith("asset:")
+          ? assetKey.slice(6)
+          : assetKey;
+        showRestoreNotice(`「${file.name}」を ${keyLabel} として復元しました`);
+      } catch (err) {
+        setModalState({
+          kind: "notice",
+          title: "画像復元エラー",
+          message:
+            err instanceof Error
+              ? err.message
+              : "画像の読み込みに失敗しました。",
+        });
+      }
+    },
+    [saveAsset, showRestoreNotice]
+  );
+
+  const handleDropFilesOnPreview = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+
+      if (unresolvedAssets.length === 0) {
+        setModalState({
+          kind: "asset-drop-result",
+          restoredCount: 0,
+          unmatchedFileNames: files.map((f) => f.name),
+          skippedErrors: [],
+          hadUnresolvedPlaceholders: false,
+        });
+        return;
+      }
+
+      const { matched, unmatchedFiles, nonImageFiles } =
+        matchDroppedFilesToUnresolvedAssets(files, unresolvedAssets);
+
+      const unmatchedFileNames = unmatchedFiles.map((f) => f.name);
+      const skippedErrors = nonImageFiles.map(
+        (f) => `${f.name}（サポート対象外のファイル形式）`
+      );
+      const newEntries: Record<string, string> = {};
+      let restoredCount = 0;
+
+      if (matched.length > 0) {
+        const showProgress = matched.length > 1;
+        let processedCount = 0;
+        if (showProgress) {
+          setRestoreProgress({ processed: 0, total: matched.length });
+        }
+
+        try {
+          for (
+            let i = 0;
+            i < matched.length;
+            i += BULK_ASSET_RESTORE_CONCURRENCY
+          ) {
+            const chunk = matched.slice(i, i + BULK_ASSET_RESTORE_CONCURRENCY);
+            const results = await Promise.all(
+              chunk.map(async (item) => {
+                try {
+                  const processed = await processUploadedImageFile(
+                    item.file,
+                    "inline"
+                  );
+                  return {
+                    ok: true as const,
+                    assetKeys: item.assetKeys,
+                    dataUrl: processed.dataUrl,
+                  };
+                } catch (err) {
+                  return {
+                    ok: false as const,
+                    error:
+                      err instanceof Error
+                        ? err.message
+                        : `${item.file.name} の読込失敗`,
+                  };
+                }
+              })
+            );
+
+            for (const res of results) {
+              if (res.ok) {
+                for (const key of res.assetKeys) {
+                  newEntries[key] = res.dataUrl;
+                  restoredCount += 1;
+                }
+              } else {
+                skippedErrors.push(res.error);
+              }
+            }
+
+            processedCount += chunk.length;
+            if (showProgress) {
+              setRestoreProgress({
+                processed: processedCount,
+                total: matched.length,
+              });
+            }
+
+            if (matched.length > BULK_ASSET_RESTORE_CONCURRENCY) {
+              await new Promise<void>((resolve) => setTimeout(resolve, 0));
+            }
+          }
+        } finally {
+          setRestoreProgress(null);
+        }
+      }
+
+      if (Object.keys(newEntries).length > 0) {
+        await saveAssetsBatch(newEntries);
+        setAssetRestoreNonce((n) => n + 1);
+      }
+
+      if (unmatchedFileNames.length > 0 || skippedErrors.length > 0) {
+        setModalState({
+          kind: "asset-drop-result",
+          restoredCount,
+          unmatchedFileNames,
+          skippedErrors,
+          hadUnresolvedPlaceholders: true,
+        });
+      } else if (restoredCount > 0) {
+        showRestoreNotice(`${restoredCount} 件の未解決画像を復元しました`);
+      }
+    },
+    [saveAssetsBatch, showRestoreNotice, unresolvedAssets]
   );
 
   const handleImportFolder = useCallback(
@@ -373,7 +566,7 @@ export function Workspace() {
     };
   }, [applyPrintTitle, restorePrintTitle]);
 
-  const handlePrint = useCallback(() => {
+  const executePrint = useCallback(() => {
     applyPrintTitle();
     try {
       window.print();
@@ -382,6 +575,17 @@ export function Workspace() {
       console.error("Failed to open print dialog:", err);
     }
   }, [applyPrintTitle, restorePrintTitle]);
+
+  const handlePrint = useCallback(() => {
+    if (unresolvedAssets.length > 0) {
+      setModalState({
+        kind: "print-unresolved-assets",
+        items: unresolvedAssets,
+      });
+      return;
+    }
+    executePrint();
+  }, [executePrint, unresolvedAssets]);
 
   const startResize = useCallback(() => {
     isResizingRef.current = true;
@@ -555,6 +759,13 @@ export function Workspace() {
                 }
                 layoutMode={prefs.layoutMode}
                 onLayoutModeChange={(mode) => updatePrefs({ layoutMode: mode })}
+                unresolvedAssets={unresolvedAssets}
+                onDropFileOnPlaceholder={handleDropFileOnPlaceholder}
+                onDropFilesOnPreview={handleDropFilesOnPreview}
+                restoreProgress={restoreProgress}
+                restoreNotice={restoreNotice}
+                onDismissRestoreNotice={() => setRestoreNotice(null)}
+                assetRestoreNonce={assetRestoreNonce}
               />
             </div>
           )}
@@ -613,6 +824,119 @@ export function Workspace() {
                 className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500"
               >
                 閉じる
+              </button>
+            </div>
+          </div>
+        )}
+
+        {effectiveModal?.kind === "asset-drop-result" && (
+          <div className="p-5">
+            <h2
+              id="mdpub-dialog-title"
+              className="text-sm font-semibold text-white"
+            >
+              {effectiveModal.restoredCount > 0
+                ? `${effectiveModal.restoredCount} 件の画像を復元しました`
+                : effectiveModal.hadUnresolvedPlaceholders
+                  ? "一致するプレースホルダが見つかりませんでした"
+                  : "未解決の画像プレースホルダはありません"}
+            </h2>
+            {!effectiveModal.hadUnresolvedPlaceholders && (
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">
+                現在の文書には未解決の <code>asset:</code> 画像がありません。新しい画像を本文へ挿入する場合は、エディタ側へドロップしてください。
+              </p>
+            )}
+            {effectiveModal.unmatchedFileNames.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-medium text-amber-300">
+                  一致しなかったファイル（{effectiveModal.unmatchedFileNames.length}件）
+                </p>
+                <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2 font-mono text-[11px] text-slate-200">
+                  {effectiveModal.unmatchedFileNames.map((name, idx) => (
+                    <li key={`${name}-${idx}`} className="truncate" title={name}>
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {effectiveModal.skippedErrors.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-medium text-red-300">
+                  スキップされたファイル（{effectiveModal.skippedErrors.length}件）
+                </p>
+                <ul className="mt-1.5 max-h-32 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2 text-[11px] text-red-200">
+                  {effectiveModal.skippedErrors.map((errMsg, idx) => (
+                    <li key={idx} className="leading-relaxed">
+                      {errMsg}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        )}
+
+        {effectiveModal?.kind === "print-unresolved-assets" && (
+          <div className="p-5">
+            <h2
+              id="mdpub-dialog-title"
+              className="text-sm font-semibold text-amber-300"
+            >
+              未解決の画像があります（{effectiveModal.items.length}件）
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              以下の画像は現在の文書に登録されていません。このまま出力すると、枠・アイコン・文字を消した空欄のまま箱の寸法を保って出力されます（プレビューと PDF のページ数は一致します）。
+            </p>
+            <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2.5 font-mono text-[11px] text-amber-200">
+              {effectiveModal.items.map((item) => (
+                <li
+                  key={item.assetKey}
+                  className="flex items-center justify-between gap-2"
+                  title={item.assetKey}
+                >
+                  <span className="min-w-0 truncate">{item.displayName}</span>
+                  {item.occurrences > 1 && (
+                    <span className="shrink-0 tabular-nums text-[10px] text-slate-400">
+                      ×{item.occurrences}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (dialogRef.current?.open) {
+                    if (typeof dialogRef.current.close === "function") {
+                      dialogRef.current.close();
+                    } else {
+                      dialogRef.current.removeAttribute("open");
+                    }
+                  }
+                  setModalState(null);
+                  executePrint();
+                }}
+                className="rounded-md bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-500"
+              >
+                このまま出力
               </button>
             </div>
           </div>

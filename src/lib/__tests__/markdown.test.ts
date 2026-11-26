@@ -515,4 +515,47 @@ back_cover: false
     const pageBreakMatches = compiled.html.match(/<div class="page-break"><\/div>/g) || [];
     expect(pageBreakMatches).toHaveLength(1);
   });
+
+  it("renders unresolved asset: images as placeholders preserving dimensions while escaping text (#25)", async () => {
+    const safePng =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const md = `---
+title: "プレースホルダ検証"
+cover: false
+toc: false
+back_cover: false
+---
+
+![アーキテクチャ図](asset:arch.png)
+
+<img src="asset:sized.png" alt="サイズ指定" width="320" height="180" />
+
+<img src="asset:bad_dim.png" alt="不正寸法" width="100px;background:red" />
+
+![解決済み](asset:ok.png)
+`;
+    const compiled = await compileMarkdownToHtml(md, {
+      "asset:ok.png": safePng,
+    });
+
+    expect(compiled.html).toContain('class="doc-asset-placeholder"');
+    expect(compiled.html).toContain('data-asset-key="asset:arch.png"');
+    expect(compiled.html).toContain(
+      '<span class="doc-asset-placeholder-name">arch.png</span>'
+    );
+    expect(compiled.html).toContain("画像をドロップして復元");
+    expect(compiled.html).toContain("doc-asset-placeholder-icon");
+
+    // width / height 属性を引き継ぐこと
+    expect(compiled.html).toContain('data-asset-key="asset:sized.png"');
+    expect(compiled.html).toContain('style="width: 320px; height: 180px;"');
+
+    // 不正な寸法指定は style に混入しないこと
+    expect(compiled.html).toContain('data-asset-key="asset:bad_dim.png"');
+    expect(compiled.html).not.toContain("background:red");
+
+    // 解決済みアセットは通常の <img> として描画されること
+    expect(compiled.html).toContain(`<img src="${safePng}" alt="解決済み">`);
+    expect(compiled.html).not.toContain('data-asset-key="asset:ok.png"');
+  });
 });

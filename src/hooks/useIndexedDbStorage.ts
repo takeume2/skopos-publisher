@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { delMany, get, getMany, keys, set } from "idb-keyval";
+import { delMany, get, getMany, keys, set, setMany } from "idb-keyval";
 import { DEFAULT_FILENAME_TEMPLATE } from "@/lib/export-filename";
 import { parseMarkdownDocument } from "@/lib/frontmatter";
 import { resolveAssetSrc } from "@/lib/markdown";
@@ -587,10 +587,11 @@ export function useIndexedDbStorage() {
       if (!activeDocId || Object.keys(entries).length === 0) return;
 
       try {
-        await Promise.all(
-          Object.entries(entries).map(([assetId, dataUrl]) =>
-            set(`${KEY_PREFIX_DOC_ASSET}${activeDocId}:${assetId}`, dataUrl)
-          )
+        await setMany(
+          Object.entries(entries).map(([assetId, dataUrl]) => [
+            `${KEY_PREFIX_DOC_ASSET}${activeDocId}:${assetId}`,
+            dataUrl,
+          ])
         );
 
         setActiveDocAssets((prev) => ({ ...prev, ...entries }));
@@ -793,7 +794,9 @@ export function useIndexedDbStorage() {
             return match;
           }
           const resolved = resolveAssetSrc(rawSrc, mergedAssets);
-          return resolved !== rawSrc ? `${prefix}${resolved}${suffix}` : match;
+          return resolved && resolved !== rawSrc
+            ? `${prefix}${resolved}${suffix}`
+            : match;
         }
       );
 

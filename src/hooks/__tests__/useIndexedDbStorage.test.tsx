@@ -195,4 +195,31 @@ describe("useIndexedDbStorage", () => {
     expect(exported?.title).toBe("文書1");
     expect(exported?.content).toContain("![pic](data:image/png;base64,DOC1_DATA)");
   });
+
+  it("preserves unresolved asset: references in getExpandedMarkdownForDoc and batches writes via saveAssetsBatch (#25)", async () => {
+    const { result } = renderHook(() => useIndexedDbStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    const docId = result.current.activeDocId;
+    await act(async () => {
+      result.current.setMarkdown(
+        '---\ntitle: "未解決保持"\n---\n\n![missing](asset:missing.png)\n![ok](asset:ok.png)'
+      );
+      await result.current.saveAssetsBatch({
+        "asset:ok.png": "data:image/png;base64,OK_IMG",
+        "asset:extra.png": "data:image/png;base64,EXTRA_IMG",
+      });
+    });
+
+    expect(result.current.assets["asset:ok.png"]).toBe(
+      "data:image/png;base64,OK_IMG"
+    );
+    expect(result.current.assets["asset:extra.png"]).toBe(
+      "data:image/png;base64,EXTRA_IMG"
+    );
+
+    const exported = await result.current.getExpandedMarkdownForDoc(docId);
+    expect(exported?.content).toContain("![missing](asset:missing.png)");
+    expect(exported?.content).toContain("![ok](data:image/png;base64,OK_IMG)");
+  });
 });

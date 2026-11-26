@@ -15,9 +15,35 @@ const mockSetMarkdown = vi.fn((next: string) => {
   mockMarkdown = next;
 });
 
+const mockSaveAsset = vi.fn().mockResolvedValue(undefined);
+const mockSaveAssetsBatch = vi.fn().mockResolvedValue(undefined);
+let mockAssets: Record<string, string> = {};
+let latestPreviewProps: {
+  onDropFileOnPlaceholder?: (assetKey: string, file: File) => void | Promise<void>;
+  onDropFilesOnPreview?: (files: File[]) => void | Promise<void>;
+} = {};
+
+vi.mock("@/lib/image-processing", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/image-processing")>(
+    "@/lib/image-processing"
+  );
+  return {
+    ...actual,
+    processUploadedImageFile: vi.fn(async (file: File) => ({
+      dataUrl: `data:image/png;base64,MOCK_${file.name}`,
+      resized: false,
+      originalBytes: file.size || 10,
+      finalBytes: 24,
+    })),
+  };
+});
+
 vi.mock("@/hooks/useIndexedDbStorage", () => ({
   useIndexedDbStorage: () => {
     const [markdown, setMarkdownState] = React.useState(mockMarkdown);
+    const [assets, setAssetsState] = React.useState<Record<string, string>>(
+      mockAssets
+    );
     const [filenameTemplate, setFilenameTemplate] = React.useState(
       mockFilenameTemplate
     );
@@ -25,6 +51,17 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
       mockSetMarkdown(next);
       setMarkdownState(next);
     }, []);
+    const saveAsset = React.useCallback(async (assetId: string, dataUrl: string) => {
+      await mockSaveAsset(assetId, dataUrl);
+      setAssetsState((prev) => ({ ...prev, [assetId]: dataUrl }));
+    }, []);
+    const saveAssetsBatch = React.useCallback(
+      async (entries: Record<string, string>) => {
+        await mockSaveAssetsBatch(entries);
+        setAssetsState((prev) => ({ ...prev, ...entries }));
+      },
+      []
+    );
     const getExpandedMarkdownForDoc = React.useCallback(async () => {
       return { title: "テスト文書", content: markdown };
     }, [markdown]);
@@ -52,9 +89,9 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
         },
       ],
       sharedAssetList: [],
-      assets: {},
-      saveAsset: vi.fn(),
-      saveAssetsBatch: vi.fn(),
+      assets,
+      saveAsset,
+      saveAssetsBatch,
       removeAsset: vi.fn(),
       clearSharedAssets: vi.fn(),
       switchDocument: vi.fn(),
@@ -84,15 +121,25 @@ vi.mock("@/components/EditorPane", () => ({
 }));
 
 vi.mock("@/components/PagedPreviewPane", () => ({
-  PagedPreviewPane: () => <div data-testid="mock-preview" />,
+  PagedPreviewPane: (props: {
+    onDropFileOnPlaceholder?: (assetKey: string, file: File) => void | Promise<void>;
+    onDropFilesOnPreview?: (files: File[]) => void | Promise<void>;
+  }) => {
+    latestPreviewProps = props;
+    return <div data-testid="mock-preview" />;
+  },
 }));
 
 describe("Workspace PDF print document.title & export filename handling (#19, #10)", () => {
   beforeEach(() => {
     document.title = ORIGINAL_APP_TITLE;
     mockFilenameTemplate = DEFAULT_FILENAME_TEMPLATE;
+    mockAssets = {};
+    latestPreviewProps = {};
     mockMarkdown = `---\ntitle: "セキュリティ監査報告書\\n2026年度版"\ndate: "2026-11-14"\nconfidential_mode: "strict"\nconfidential_label: "CONFIDENTIAL"\n---\n\n# 概要\n`;
     mockSetMarkdown.mockClear();
+    mockSaveAsset.mockClear();
+    mockSaveAssetsBatch.mockClear();
   });
 
   afterEach(() => {
@@ -265,5 +312,70 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
     const dialog = container.querySelector("dialog.mdpub-dialog");
     expect(dialog).toBeTruthy();
     expect(dialog?.getAttribute("closedby")).toBe("any");
+  });
+
+  it("shows a warning dialog before printing when unresolved asset: images exist, and allows cancel or proceed (#25)", () => {
+    mockMarkdown = `---\ntitle: "未解決画像テスト"\ndate: "2026-11-26"\n---\n\n![図1](asset:diagram.png)\n\n![図2](asset:chart.png)\n![図2再掲](asset:chart.png)\n`;
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    render(<Workspace />);
+
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+
+    // 即時印刷せず警告ダイアログを表示
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(screen.getByText("未解決の画像があります（2件）")).toBeTruthy();
+    expect(screen.getByText("diagram.png")).toBeTruthy();
+    expect(screen.getByText("chart.png")).toBeTruthy();
+    expect(screen.getByText("×2")).toBeTruthy();
+
+    // キャンセルで印刷せず閉じる
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText("未解決の画像があります（2件）")).toBeNull();
+
+    // 再度押下し「このまま出力」で window.print() を実行
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    fireEvent.click(screen.getByRole("button", { name: "このまま出力" }));
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(document.title).toBe("20261126_未解決画像テスト");
+  });
+
+  it("restores matched images in bulk on preview drop, lists unmatched filenames, and supports direct placeholder drop (#25)", async () => {
+    mockMarkdown = `---\ntitle: "復元テスト"\n---\n\n![図1](asset:fig1.png)\n\n![図2](asset:fig2.png)\n`;
+
+    render(<Workspace />);
+
+    // 文書全体ドロップ: fig1.png のみ一致、unknown.png は不一致
+    const matchedFile = new File(["img"], "fig1.png", { type: "image/png" });
+    const unmatchedFile = new File(["img"], "unknown.png", { type: "image/png" });
+    await latestPreviewProps.onDropFilesOnPreview?.([matchedFile, unmatchedFile]);
+
+    await waitFor(() => {
+      expect(mockSaveAssetsBatch).toHaveBeenCalledWith({
+        "asset:fig1.png": "data:image/png;base64,MOCK_fig1.png",
+      });
+    });
+
+    // 不一致ファイル名一覧ダイアログが表示されること
+    expect(await screen.findByText("1 件の画像を復元しました")).toBeTruthy();
+    expect(screen.getByText("一致しなかったファイル（1件）")).toBeTruthy();
+    expect(screen.getByText("unknown.png")).toBeTruthy();
+
+    // プレースホルダ直接ドロップ: ファイル名が異なっても fig2.png キーで登録
+    const customFile = new File(["img"], "replacement.png", {
+      type: "image/png",
+    });
+    await latestPreviewProps.onDropFileOnPlaceholder?.(
+      "asset:fig2.png",
+      customFile
+    );
+
+    await waitFor(() => {
+      expect(mockSaveAsset).toHaveBeenCalledWith(
+        "asset:fig2.png",
+        "data:image/png;base64,MOCK_replacement.png"
+      );
+    });
   });
 });

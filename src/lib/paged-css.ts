@@ -1452,6 +1452,62 @@ export function buildPagedMediaCss(
       page-break-inside: avoid;
     }
 
+    .doc-asset-placeholder {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 48mm;
+      max-width: 100%;
+      max-height: ${maxImageHeight};
+      padding: 4mm;
+      border: 1.5pt dashed var(--doc-border);
+      border-radius: 2mm;
+      background-color: var(--doc-bg-subtle);
+      color: var(--doc-muted);
+      text-align: center;
+      vertical-align: middle;
+      overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .doc-asset-placeholder-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5mm;
+      max-width: 100%;
+      pointer-events: none;
+    }
+
+    .doc-asset-placeholder-icon {
+      width: 8mm;
+      height: 8mm;
+      color: var(--doc-muted);
+      opacity: 0.75;
+      flex-shrink: 0;
+    }
+
+    .doc-asset-placeholder-name {
+      font-family: var(--doc-font-mono);
+      font-size: 8.5pt;
+      font-weight: 600;
+      color: var(--doc-text);
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      line-height: 1.35;
+    }
+
+    .doc-asset-placeholder-hint {
+      font-family: var(--doc-font-sans);
+      font-size: 7.5pt;
+      color: var(--doc-muted);
+      line-height: 1.3;
+    }
+
     .page-break {
       break-before: page;
       page-break-before: always;

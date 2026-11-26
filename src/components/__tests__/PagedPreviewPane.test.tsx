@@ -430,4 +430,77 @@ describe("PagedPreviewPane double buffering & scroll preservation", () => {
     const totalPagesSpan = screen.getByText(/\/ \d+ ページ/);
     expect(totalPagesSpan.classList.contains("tabular-nums")).toBe(true);
   });
+
+  it("routes single-file placeholder drop to onDropFileOnPlaceholder and bulk/document drop to onDropFilesOnPreview (#25)", async () => {
+    const onDropFileOnPlaceholder = vi.fn();
+    const onDropFilesOnPreview = vi.fn();
+
+    const { container, scrollContainer } = renderPane({
+      unresolvedAssets: [
+        {
+          assetKey: "asset:diagram.png",
+          rawName: "diagram.png",
+          displayName: "diagram.png",
+          alt: "図1",
+          occurrences: 1,
+          source: "body",
+        },
+      ],
+      onDropFileOnPlaceholder,
+      onDropFilesOnPreview,
+    });
+
+    expect(screen.getByText(/未解決の画像が 1 件あります/)).toBeTruthy();
+
+    await waitFor(() => expect(previewQueue.length).toBe(1));
+    await act(async () => {
+      previewQueue[0].resolve([{ id: "page-1", bodyText: "本文" }]);
+    });
+
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll(".paged-preview-canvas .pagedjs_page")
+      ).toHaveLength(1);
+    });
+
+    // プレビュー内にプレースホルダ要素を配置してイベント委譲を検証
+    const pageContent = container.querySelector(
+      ".paged-preview-canvas .pagedjs_page_content"
+    )!;
+    const placeholder = document.createElement("span");
+    placeholder.className = "doc-asset-placeholder";
+    placeholder.setAttribute("data-asset-key", "asset:diagram.png");
+    pageContent.appendChild(placeholder);
+
+    // 1件の画像をプレースホルダへ直接ドロップ → ファイル名不問で onDropFileOnPlaceholder
+    const renamedFile = new File(["png"], "another-name.png", {
+      type: "image/png",
+    });
+    fireEvent.drop(placeholder, {
+      dataTransfer: { files: [renamedFile], types: ["Files"] },
+    });
+    expect(onDropFileOnPlaceholder).toHaveBeenCalledTimes(1);
+    expect(onDropFileOnPlaceholder).toHaveBeenCalledWith(
+      "asset:diagram.png",
+      renamedFile
+    );
+    expect(onDropFilesOnPreview).not.toHaveBeenCalled();
+
+    // 複数ファイルをプレースホルダ上へドロップ → 文書全体の一括照合へフォールバック
+    const fileA = new File(["png"], "diagram.png", { type: "image/png" });
+    const fileB = new File(["png"], "other.png", { type: "image/png" });
+    fireEvent.drop(placeholder, {
+      dataTransfer: { files: [fileA, fileB], types: ["Files"] },
+    });
+    expect(onDropFilesOnPreview).toHaveBeenCalledTimes(1);
+    expect(onDropFilesOnPreview).toHaveBeenCalledWith([fileA, fileB]);
+
+    // プレースホルダ外（文書全体）への1件ドロップ → onDropFilesOnPreview
+    onDropFilesOnPreview.mockClear();
+    fireEvent.drop(scrollContainer, {
+      dataTransfer: { files: [fileA], types: ["Files"] },
+    });
+    expect(onDropFilesOnPreview).toHaveBeenCalledTimes(1);
+    expect(onDropFilesOnPreview).toHaveBeenCalledWith([fileA]);
+  });
 });
