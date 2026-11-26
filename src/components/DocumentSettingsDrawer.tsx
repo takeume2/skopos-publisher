@@ -3,7 +3,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   Copy,
   FileDown,
@@ -271,15 +270,6 @@ export function DocumentSettingsDrawer({
   onSaveAsset,
   onNotice,
 }: DocumentSettingsDrawerProps) {
-  const [openSections, setOpenSections] = useState({
-    basic: true,
-    confidential: true,
-    filename: true,
-    theme: true,
-    structure: true,
-    headerFooter: true,
-  });
-
   const [focusedField, setFocusedField] = useState<
     "header_left" | "header_right" | "footer_left" | "footer_right"
   >("header_left");
@@ -348,10 +338,6 @@ export function DocumentSettingsDrawer({
     });
   };
 
-  const toggleSection = (key: keyof typeof openSections) => {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
   const handleInsertChip = (chip: string) => {
     const current = frontmatter[focusedField] || "";
     updateField(focusedField, current ? `${current} ${chip}` : chip);
@@ -393,40 +379,30 @@ export function DocumentSettingsDrawer({
 
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] divide-y divide-slate-800 text-xs">
         {/* 1. 基本・用紙設定 */}
-        <section>
-          <button
-            type="button"
-            onClick={() => toggleSection("basic")}
-            aria-expanded={openSections.basic}
-            className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
-          >
+        <details open className="mdpub-settings-details">
+          <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <Type className="h-3.5 w-3.5 text-sky-400" />
               基本・用紙設定
             </span>
-            {openSections.basic ? (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            )}
-          </button>
+            <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
+          </summary>
 
-          {openSections.basic && (
-            <div className="space-y-3 px-4 pb-4 pt-1">
-              <div>
-                <label className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
-                  <span>タイトル</span>
-                  <span className="text-[10px] text-slate-500">
-                    Enter / \n / &lt;br&gt; で改行可
-                  </span>
-                </label>
-                <textarea
-                  rows={2}
-                  value={frontmatter.title}
-                  onChange={(e) => updateField("title", e.target.value)}
-                  className="w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs leading-relaxed text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                />
-              </div>
+          <div className="space-y-3 px-4 pb-4 pt-1">
+            <div>
+              <label className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
+                <span>タイトル</span>
+                <span className="text-[10px] text-slate-500">
+                  Enter / \n / &lt;br&gt; で改行可
+                </span>
+              </label>
+              <textarea
+                rows={2}
+                value={frontmatter.title}
+                onChange={(e) => updateField("title", e.target.value)}
+                className="mdpub-auto-textarea w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs leading-relaxed text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              />
+            </div>
 
               <div>
                 <label className="mb-1 block text-[11px] text-slate-400">
@@ -517,30 +493,19 @@ export function DocumentSettingsDrawer({
                 </div>
               </div>
             </div>
-          )}
-        </section>
+        </details>
 
         {/* 2. 機密表示・透かし設定 */}
-        <section>
-          <button
-            type="button"
-            onClick={() => toggleSection("confidential")}
-            aria-expanded={openSections.confidential}
-            className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
-          >
+        <details open className="mdpub-settings-details">
+          <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
               機密表示・透かし設定
             </span>
-            {openSections.confidential ? (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            )}
-          </button>
+            <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
+          </summary>
 
-          {openSections.confidential && (
-            <div className="space-y-3 px-4 pb-4 pt-1">
+          <div className="space-y-3 px-4 pb-4 pt-1">
               <div className="space-y-1.5">
                 {(
                   [
@@ -628,30 +593,19 @@ export function DocumentSettingsDrawer({
                 </div>
               )}
             </div>
-          )}
-        </section>
+        </details>
 
         {/* 3. 出力ファイル名規則・ガイド */}
-        <section>
-          <button
-            type="button"
-            onClick={() => toggleSection("filename")}
-            aria-expanded={openSections.filename}
-            className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
-          >
+        <details open className="mdpub-settings-details">
+          <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <FileDown className="h-3.5 w-3.5 text-sky-400" />
               出力ファイル名
             </span>
-            {openSections.filename ? (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            )}
-          </button>
+            <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
+          </summary>
 
-          {openSections.filename && (
-            <div className="space-y-3 px-4 pb-4 pt-1">
+          <div className="space-y-3 px-4 pb-4 pt-1">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-slate-400">
@@ -795,30 +749,19 @@ export function DocumentSettingsDrawer({
                 </div>
               )}
             </div>
-          )}
-        </section>
+        </details>
 
         {/* 4. デザインテーマ & カスタマイズ */}
-        <section>
-          <button
-            type="button"
-            onClick={() => toggleSection("theme")}
-            aria-expanded={openSections.theme}
-            className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
-          >
+        <details open className="mdpub-settings-details">
+          <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <Palette className="h-3.5 w-3.5 text-sky-400" />
               デザインテーマ & カスタマイズ
             </span>
-            {openSections.theme ? (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            )}
-          </button>
+            <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
+          </summary>
 
-          {openSections.theme && (
-            <div className="space-y-3 px-4 pb-4 pt-1">
+          <div className="space-y-3 px-4 pb-4 pt-1">
               <div className="space-y-2">
                 {THEME_CARDS.map((card) => {
                   const selected = frontmatter.theme === card.id;
@@ -1006,30 +949,19 @@ export function DocumentSettingsDrawer({
                 </div>
               </div>
             </div>
-          )}
-        </section>
+        </details>
 
-        {/* 4. ページ構成（表紙・目次・奥付） */}
-        <section>
-          <button
-            type="button"
-            onClick={() => toggleSection("structure")}
-            aria-expanded={openSections.structure}
-            className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
-          >
+        {/* 5. ページ構成（表紙・目次・奥付） */}
+        <details open className="mdpub-settings-details">
+          <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <LayoutTemplate className="h-3.5 w-3.5 text-sky-400" />
               ページ構成（表紙・目次・奥付）
             </span>
-            {openSections.structure ? (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            )}
-          </button>
+            <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
+          </summary>
 
-          {openSections.structure && (
-            <div className="space-y-3 px-4 pb-4 pt-1">
+          <div className="space-y-3 px-4 pb-4 pt-1">
               <div className="space-y-2">
                 <label className="flex cursor-pointer items-center justify-between">
                   <span>表紙を生成</span>
@@ -1144,7 +1076,7 @@ export function DocumentSettingsDrawer({
                         onChange={(e) =>
                           updateField("back_cover_text", e.target.value)
                         }
-                        className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                        className="mdpub-auto-textarea w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                       />
                     </div>
 
@@ -1165,30 +1097,19 @@ export function DocumentSettingsDrawer({
                 )}
               </div>
             </div>
-          )}
-        </section>
+        </details>
 
-        {/* 5. ヘッダー・フッター・ロゴ */}
-        <section>
-          <button
-            type="button"
-            onClick={() => toggleSection("headerFooter")}
-            aria-expanded={openSections.headerFooter}
-            className="flex w-full items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50"
-          >
+        {/* 6. ヘッダー・フッター・ロゴ */}
+        <details open className="mdpub-settings-details">
+          <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <ImagePlus className="h-3.5 w-3.5 text-sky-400" />
               ヘッダー・フッター・ロゴ
             </span>
-            {openSections.headerFooter ? (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            )}
-          </button>
+            <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
+          </summary>
 
-          {openSections.headerFooter && (
-            <div className="space-y-3 px-4 pb-6 pt-1">
+          <div className="space-y-3 px-4 pb-6 pt-1">
               <div>
                 <div className="mb-1 text-[11px] text-slate-400">
                   クリックで選択中の欄に挿入:
@@ -1299,8 +1220,7 @@ export function DocumentSettingsDrawer({
                 </div>
               </div>
             </div>
-          )}
-        </section>
+        </details>
       </div>
     </aside>
   );

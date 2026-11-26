@@ -208,6 +208,46 @@ dialog.mdpub-dialog::backdrop {
   backdrop-filter: blur(4px);
 }
 
+.mdpub-settings-details {
+  interpolate-size: allow-keywords;
+}
+
+.mdpub-settings-summary {
+  list-style: none;
+}
+
+.mdpub-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mdpub-details-chevron {
+  transition: transform 160ms ease;
+}
+
+.mdpub-settings-details[open] > .mdpub-settings-summary .mdpub-details-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mdpub-settings-details::details-content {
+    block-size: 0;
+    overflow: clip;
+    transition:
+      block-size 180ms ease,
+      content-visibility 180ms allow-discrete;
+  }
+
+  .mdpub-settings-details[open]::details-content {
+    block-size: auto;
+  }
+}
+
+.mdpub-auto-textarea {
+  field-sizing: content;
+  min-height: 2.75rem;
+  max-height: 12rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
