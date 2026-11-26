@@ -147,4 +147,88 @@ describe("image-processing (#16)", () => {
     expect(gifRes.resized).toBe(false);
     expect(gifRes.dataUrl).toBe("data:image/gif;base64,GIFDATA");
   });
+
+  it("prefers createImageBitmap for off-thread decoding and always closes the bitmap (#55)", async () => {
+    const drawImage = vi.fn();
+    const toDataURL = vi.fn(() => "data:image/webp;base64,RESIZED_BITMAP");
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage }),
+      toDataURL,
+    };
+
+    const bigClose = vi.fn();
+    const bigBitmap = { width: 3200, height: 1600, close: bigClose };
+    const loadImageSpy = vi.fn();
+    const bigWebp = createSizedFile("hero.webp", "image/webp", 1024 * 1024);
+
+    const resized = await processUploadedImageFile(bigWebp, "inline", {
+      readAsDataUrl: async () => "data:image/webp;base64,RAW_BIG",
+      createImageBitmap: async () => bigBitmap,
+      loadImage: loadImageSpy,
+      createCanvas: () => mockCanvas,
+    });
+
+    expect(resized.resized).toBe(true);
+    expect(resized.width).toBe(1600);
+    expect(resized.height).toBe(800);
+    expect(resized.dataUrl).toBe("data:image/webp;base64,RESIZED_BITMAP");
+    expect(drawImage).toHaveBeenCalledWith(bigBitmap, 0, 0, 1600, 800);
+    expect(bigClose).toHaveBeenCalledTimes(1);
+    expect(loadImageSpy).not.toHaveBeenCalled();
+
+    // リサイズ不要な画像でも bitmap.close() が確実に呼ばれる
+    const smallClose = vi.fn();
+    const smallBitmap = { width: 400, height: 300, close: smallClose };
+    const smallPng = createSizedFile("thumb.png", "image/png", 64 * 1024);
+
+    const untouched = await processUploadedImageFile(smallPng, "logo", {
+      readAsDataUrl: async () => "data:image/png;base64,SMALL_PNG",
+      createImageBitmap: async () => smallBitmap,
+      createCanvas: () => mockCanvas,
+    });
+
+    expect(untouched.resized).toBe(false);
+    expect(untouched.dataUrl).toBe("data:image/png;base64,SMALL_PNG");
+    expect(smallClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to loadImage when createImageBitmap rejects (#55)", async () => {
+    const drawImage = vi.fn();
+    const toDataURL = vi.fn(() => "data:image/png;base64,FALLBACK_RESIZED");
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage }),
+      toDataURL,
+    };
+
+    const cleanupSpy = vi.fn();
+    const fallbackSource = {} as CanvasImageSource;
+    const loadImage = vi.fn(async () => ({
+      naturalWidth: 1600,
+      naturalHeight: 1600,
+      source: fallbackSource,
+      cleanup: cleanupSpy,
+    }));
+
+    const logoPng = createSizedFile("brand.png", "image/png", 512 * 1024);
+    const result = await processUploadedImageFile(logoPng, "logo", {
+      readAsDataUrl: async () => "data:image/png;base64,RAW_LOGO",
+      createImageBitmap: async () => {
+        throw new Error("decode failed");
+      },
+      loadImage,
+      createCanvas: () => mockCanvas,
+    });
+
+    expect(loadImage).toHaveBeenCalledWith("data:image/png;base64,RAW_LOGO");
+    expect(result.resized).toBe(true);
+    expect(result.width).toBe(800);
+    expect(result.height).toBe(800);
+    expect(result.dataUrl).toBe("data:image/png;base64,FALLBACK_RESIZED");
+    expect(drawImage).toHaveBeenCalledWith(fallbackSource, 0, 0, 800, 800);
+    expect(cleanupSpy).toHaveBeenCalledTimes(1);
+  });
 });
