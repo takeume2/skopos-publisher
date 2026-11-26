@@ -111,4 +111,53 @@ describe("DocumentSettingsDrawer export filename section (#10)", () => {
     fireEvent.click(screen.getByLabelText("MDファイル名をコピー"));
     expect(writeText).toHaveBeenCalledWith("20261126_報告書_CONFIDENTIAL.md");
   });
+
+  it("renders all 6 settings sections as native open <details>/<summary> accordions and applies auto-sizing class to textareas", () => {
+    const { container } = render(
+      <DocumentSettingsDrawer
+        isOpen={true}
+        onClose={vi.fn()}
+        frontmatter={{ ...DEFAULT_FRONTMATTER, back_cover: true }}
+        assets={{}}
+        filenameTemplate={DEFAULT_FILENAME_TEMPLATE}
+        onChangeFilenameTemplate={vi.fn()}
+        onChangeFrontmatter={vi.fn()}
+        onSaveAsset={vi.fn().mockResolvedValue(undefined)}
+        onRemoveAsset={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    const detailsList = Array.from(
+      container.querySelectorAll<HTMLDetailsElement>("details.mdpub-settings-details")
+    );
+    expect(detailsList).toHaveLength(6);
+    expect(detailsList.every((el) => el.open)).toBe(true);
+
+    const summaries = detailsList.map(
+      (el) => el.querySelector("summary")?.textContent?.trim() ?? ""
+    );
+    expect(summaries).toEqual([
+      "基本・用紙設定",
+      "機密表示・透かし設定",
+      "出力ファイル名",
+      "デザインテーマ & カスタマイズ",
+      "ページ構成（表紙・目次・奥付）",
+      "ヘッダー・フッター・ロゴ",
+    ]);
+
+    // Native <summary> click toggles <details> open state
+    const firstDetails = detailsList[0];
+    const firstSummary = firstDetails.querySelector("summary")!;
+    fireEvent.click(firstSummary);
+    expect(firstDetails.open).toBe(false);
+    fireEvent.click(firstSummary);
+    expect(firstDetails.open).toBe(true);
+
+    // Title and back_cover_text textareas carry the field-sizing helper class
+    const textareas = Array.from(container.querySelectorAll("textarea"));
+    expect(textareas).toHaveLength(2);
+    expect(
+      textareas.every((el) => el.classList.contains("mdpub-auto-textarea"))
+    ).toBe(true);
+  });
 });
