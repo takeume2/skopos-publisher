@@ -530,7 +530,7 @@ export function PagedPreviewPane({
   };
 
   return (
-    <div className="print-preview-pane flex h-full min-h-0 flex-col bg-zinc-800">
+    <div className="print-preview-pane preview-pane-container flex h-full min-h-0 flex-col bg-zinc-800">
       <div className="no-print flex flex-wrap items-center justify-between gap-2 border-b border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200">
         <div className="flex items-center gap-1.5">
           <button
@@ -582,7 +582,7 @@ export function PagedPreviewPane({
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <Maximize2 className="h-3 w-3" />
-            <span className="hidden xl:inline">幅に合わせる</span>
+            <span className="preview-cq-label">幅に合わせる</span>
           </button>
 
           <button
@@ -592,7 +592,7 @@ export function PagedPreviewPane({
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <Minimize2 className="h-3 w-3" />
-            <span className="hidden xl:inline">全体表示</span>
+            <span className="preview-cq-label">全体表示</span>
           </button>
         </div>
 
@@ -698,7 +698,7 @@ export function PagedPreviewPane({
             }`}
           >
             <Grid className="h-3 w-3" />
-            <span className="hidden xl:inline">余白ガイド</span>
+            <span className="preview-cq-label">余白ガイド</span>
           </button>
 
           <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-zinc-300">
