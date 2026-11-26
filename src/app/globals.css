@@ -100,10 +100,12 @@ body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::after {
 
   .print-workspace-shell,
   .print-preview-pane,
+  .preview-pane-container,
   .print-scroll-container,
   .print-zoom-wrapper {
     display: block !important;
     position: static !important;
+    container-type: normal !important;
     width: auto !important;
     height: auto !important;
     overflow: visible !important;
@@ -246,6 +248,21 @@ dialog.mdpub-dialog::backdrop {
   field-sizing: content;
   min-height: 2.75rem;
   max-height: 12rem;
+}
+
+.preview-pane-container {
+  container-type: inline-size;
+  container-name: preview-pane;
+}
+
+.preview-cq-label {
+  display: none;
+}
+
+@container preview-pane (min-width: 720px) {
+  .preview-cq-label {
+    display: inline;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

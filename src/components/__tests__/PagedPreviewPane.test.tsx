@@ -401,4 +401,16 @@ describe("PagedPreviewPane double buffering & scroll preservation", () => {
       consoleErrorSpy.mockRestore();
     }
   });
+
+  it("uses container query classes instead of viewport xl breakpoints for preview toolbar labels (#54)", () => {
+    const { container } = renderPane();
+
+    const root = container.querySelector(".print-preview-pane");
+    expect(root?.classList.contains("preview-pane-container")).toBe(true);
+
+    const cqLabels = Array.from(container.querySelectorAll(".preview-cq-label")).map(
+      (el) => el.textContent?.trim()
+    );
+    expect(cqLabels).toEqual(["幅に合わせる", "全体表示", "余白ガイド"]);
+  });
 });
