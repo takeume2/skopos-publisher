@@ -17,7 +17,6 @@ describe("TopToolbar accessibility & motion preferences", () => {
         saveStatus="saved"
         viewMode="split"
         onViewModeChange={vi.fn()}
-        onResetSample={vi.fn()}
         onImportMarkdown={vi.fn()}
         onImportFolder={vi.fn()}
         onExportMarkdown={vi.fn()}
@@ -50,5 +49,10 @@ describe("TopToolbar accessibility & motion preferences", () => {
     const spinner = container.querySelector("svg.animate-spin");
     expect(spinner).toBeTruthy();
     expect(spinner?.getAttribute("class")).toContain("motion-reduce:animate-none");
+  });
+
+  it("does not expose destructive sample reset button in the top toolbar (#63)", () => {
+    renderToolbar();
+    expect(screen.queryByRole("button", { name: /サンプル/ })).toBeNull();
   });
 });

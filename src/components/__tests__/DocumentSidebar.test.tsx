@@ -303,4 +303,39 @@ describe("DocumentSidebar", () => {
     expect(docsTab.getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(docsTab);
   });
+
+  it("renders warning-styled sample reset button in documents footer and invokes onRequestResetSample (#63)", () => {
+    const onRequestResetSample = vi.fn();
+
+    render(
+      <DocumentSidebar
+        isOpen={true}
+        activeDocId="doc_1"
+        activeFrontmatterAssets={{
+          logo: "",
+          cover_image: "",
+          back_cover_image: "",
+        }}
+        documents={[DOC_1]}
+        sharedAssets={[]}
+        onSelectDocument={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onExportDocument={vi.fn()}
+        onRequestResetSample={onRequestResetSample}
+        onRequestDeleteDocument={vi.fn()}
+        onRequestDeleteAllDocuments={vi.fn()}
+        onAddSharedAsset={vi.fn()}
+        onApplySharedAsset={vi.fn()}
+        onRequestDeleteSharedAsset={vi.fn()}
+        onRequestDeleteAllSharedAssets={vi.fn()}
+      />
+    );
+
+    const resetBtn = screen.getByRole("button", {
+      name: "サンプルを復元（上書き）",
+    });
+    expect(resetBtn.className).toContain("text-amber-300");
+    fireEvent.click(resetBtn);
+    expect(onRequestResetSample).toHaveBeenCalledTimes(1);
+  });
 });
