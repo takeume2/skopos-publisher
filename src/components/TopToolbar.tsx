@@ -29,6 +29,7 @@ interface TopToolbarProps {
   onImportFolder: (files: FileList) => void;
   onExportMarkdown: () => void;
   onPrint: () => void;
+  isPreparingPrint?: boolean;
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
   isSettingsOpen: boolean;
@@ -48,6 +49,7 @@ export function TopToolbar({
   onImportFolder,
   onExportMarkdown,
   onPrint,
+  isPreparingPrint = false,
   isSidebarOpen,
   onToggleSidebar,
   isSettingsOpen,
@@ -242,10 +244,16 @@ export function TopToolbar({
         <button
           type="button"
           onClick={onPrint}
-          className={`inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-sky-500 ${FOCUS_RING}`}
+          disabled={isPreparingPrint}
+          aria-busy={isPreparingPrint || undefined}
+          className={`inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-sky-500 disabled:cursor-wait disabled:opacity-70 ${FOCUS_RING}`}
         >
-          <Printer className="h-3.5 w-3.5" />
-          <span>PDF出力 / 印刷</span>
+          {isPreparingPrint ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+          ) : (
+            <Printer className="h-3.5 w-3.5" />
+          )}
+          <span>{isPreparingPrint ? "組版準備中..." : "PDF出力 / 印刷"}</span>
         </button>
       </div>
     </header>

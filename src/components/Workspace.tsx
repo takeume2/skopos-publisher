@@ -33,7 +33,10 @@ import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
 import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
 import { EditorJumpRequest, EditorPane } from "./EditorPane";
-import { PagedPreviewPane } from "./PagedPreviewPane";
+import {
+  PagedPreviewPane,
+  type PagedPreviewPaneHandle,
+} from "./PagedPreviewPane";
 import { TopToolbar, ViewMode } from "./TopToolbar";
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
@@ -115,13 +118,29 @@ export function Workspace() {
   } | null>(null);
   const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
   const [assetRestoreNonce, setAssetRestoreNonce] = useState<number>(0);
+  const [isPreparingPrint, setIsPreparingPrint] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const previewPaneRef = useRef<PagedPreviewPaneHandle>(null);
+  const previewWrapperRef = useRef<HTMLDivElement>(null);
   const isResizingRef = useRef<boolean>(false);
   const previousDocumentTitleRef = useRef<string | null>(null);
+  const isPreparingPrintRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
   const jumpRequestSeqRef = useRef<number>(0);
   const restoreNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isPreviewHidden = viewMode === "editor";
+  const isPreviewHiddenRef = useRef<boolean>(isPreviewHidden);
+  isPreviewHiddenRef.current = isPreviewHidden;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const effectiveModal: ModalState = storageError
     ? {
@@ -527,19 +546,39 @@ export function Workspace() {
     [handleFrontmatterChange, parsed.frontmatter]
   );
 
+  const setPreviewWrapperPrintAccessibility = useCallback(
+    (printing: boolean) => {
+      const wrapper = previewWrapperRef.current;
+      if (!wrapper) return;
+      if (printing) {
+        wrapper.removeAttribute("aria-hidden");
+        wrapper.removeAttribute("inert");
+      } else if (isPreviewHiddenRef.current) {
+        wrapper.setAttribute("aria-hidden", "true");
+        wrapper.setAttribute("inert", "");
+      } else {
+        wrapper.removeAttribute("aria-hidden");
+        wrapper.removeAttribute("inert");
+      }
+    },
+    []
+  );
+
   const applyPrintTitle = useCallback(() => {
     if (previousDocumentTitleRef.current === null) {
       previousDocumentTitleRef.current = document.title;
     }
     document.title = printTitleRef.current;
-  }, []);
+    setPreviewWrapperPrintAccessibility(true);
+  }, [setPreviewWrapperPrintAccessibility]);
 
   const restorePrintTitle = useCallback(() => {
     if (previousDocumentTitleRef.current !== null) {
       document.title = previousDocumentTitleRef.current;
       previousDocumentTitleRef.current = null;
     }
-  }, []);
+    setPreviewWrapperPrintAccessibility(false);
+  }, [setPreviewWrapperPrintAccessibility]);
 
   useEffect(() => {
     window.addEventListener("beforeprint", applyPrintTitle);
@@ -566,7 +605,7 @@ export function Workspace() {
     };
   }, [applyPrintTitle, restorePrintTitle]);
 
-  const executePrint = useCallback(() => {
+  const runWindowPrint = useCallback(() => {
     applyPrintTitle();
     try {
       window.print();
@@ -575,6 +614,41 @@ export function Workspace() {
       console.error("Failed to open print dialog:", err);
     }
   }, [applyPrintTitle, restorePrintTitle]);
+
+  const executePrint = useCallback(() => {
+    if (isPreparingPrintRef.current) return;
+
+    const previewHandle = previewPaneRef.current;
+    if (previewHandle && !previewHandle.isUpToDate()) {
+      isPreparingPrintRef.current = true;
+      setIsPreparingPrint(true);
+      void previewHandle
+        .renderNow()
+        .then((result) => {
+          if (!isMountedRef.current) return;
+          if (result.ok) {
+            runWindowPrint();
+          } else if (!result.cancelled) {
+            setModalState({
+              kind: "notice",
+              title: "PDF出力エラー",
+              message:
+                result.error ||
+                "組版レンダリングに失敗したため、PDF出力を開始できませんでした。プレビュー表示に切り替えて内容を確認してください。",
+            });
+          }
+        })
+        .finally(() => {
+          isPreparingPrintRef.current = false;
+          if (isMountedRef.current) {
+            setIsPreparingPrint(false);
+          }
+        });
+      return;
+    }
+
+    runWindowPrint();
+  }, [runWindowPrint]);
 
   const handlePrint = useCallback(() => {
     if (unresolvedAssets.length > 0) {
@@ -659,6 +733,7 @@ export function Workspace() {
         onImportFolder={handleImportFolder}
         onExportMarkdown={handleExportMarkdown}
         onPrint={handlePrint}
+        isPreparingPrint={isPreparingPrint}
         isSidebarOpen={prefs.isSidebarOpen}
         onToggleSidebar={() =>
           void updatePrefs({ isSidebarOpen: !prefs.isSidebarOpen })
@@ -744,31 +819,37 @@ export function Workspace() {
             />
           )}
 
-          {viewMode !== "editor" && (
-            <div className="print-preview-pane min-h-0 min-w-0 flex-1 overflow-hidden">
-              <PagedPreviewPane
-                documentId={activeDocId}
-                markdown={markdown}
-                frontmatter={parsed.frontmatter}
-                assets={assets}
-                autoUpdate={prefs.autoUpdate}
-                onToggleAutoUpdate={(val) => updatePrefs({ autoUpdate: val })}
-                showMarginGuides={prefs.showMarginGuides}
-                onToggleMarginGuides={(val) =>
-                  updatePrefs({ showMarginGuides: val })
-                }
-                layoutMode={prefs.layoutMode}
-                onLayoutModeChange={(mode) => updatePrefs({ layoutMode: mode })}
-                unresolvedAssets={unresolvedAssets}
-                onDropFileOnPlaceholder={handleDropFileOnPlaceholder}
-                onDropFilesOnPreview={handleDropFilesOnPreview}
-                restoreProgress={restoreProgress}
-                restoreNotice={restoreNotice}
-                onDismissRestoreNotice={() => setRestoreNotice(null)}
-                assetRestoreNonce={assetRestoreNonce}
-              />
-            </div>
-          )}
+          <div
+            ref={previewWrapperRef}
+            aria-hidden={isPreviewHidden || undefined}
+            inert={isPreviewHidden ? true : undefined}
+            className={`print-preview-pane min-h-0 min-w-0 flex-1 overflow-hidden ${
+              isPreviewHidden ? "print-preview-pane-screen-hidden" : ""
+            }`}
+          >
+            <PagedPreviewPane
+              ref={previewPaneRef}
+              documentId={activeDocId}
+              markdown={markdown}
+              frontmatter={parsed.frontmatter}
+              assets={assets}
+              autoUpdate={prefs.autoUpdate}
+              onToggleAutoUpdate={(val) => updatePrefs({ autoUpdate: val })}
+              showMarginGuides={prefs.showMarginGuides}
+              onToggleMarginGuides={(val) =>
+                updatePrefs({ showMarginGuides: val })
+              }
+              layoutMode={prefs.layoutMode}
+              onLayoutModeChange={(mode) => updatePrefs({ layoutMode: mode })}
+              unresolvedAssets={unresolvedAssets}
+              onDropFileOnPlaceholder={handleDropFileOnPlaceholder}
+              onDropFilesOnPreview={handleDropFilesOnPreview}
+              restoreProgress={restoreProgress}
+              restoreNotice={restoreNotice}
+              onDismissRestoreNotice={() => setRestoreNotice(null)}
+              assetRestoreNonce={assetRestoreNonce}
+            />
+          </div>
         </div>
 
         <DocumentSettingsDrawer

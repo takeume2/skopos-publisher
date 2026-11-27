@@ -18,6 +18,10 @@ const mockSetMarkdown = vi.fn((next: string) => {
 const mockSaveAsset = vi.fn().mockResolvedValue(undefined);
 const mockSaveAssetsBatch = vi.fn().mockResolvedValue(undefined);
 let mockAssets: Record<string, string> = {};
+let mockPreviewUpToDate = true;
+let mockPreviewRenderNow = vi.fn(async (): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> => ({
+  ok: true,
+}));
 let latestPreviewProps: {
   onDropFileOnPlaceholder?: (assetKey: string, file: File) => void | Promise<void>;
   onDropFilesOnPreview?: (files: File[]) => void | Promise<void>;
@@ -122,10 +126,18 @@ vi.mock("@/components/EditorPane", () => ({
 
 vi.mock("@/components/PagedPreviewPane", () => ({
   PagedPreviewPane: (props: {
+    ref?: React.Ref<{
+      isUpToDate: () => boolean;
+      renderNow: () => Promise<{ ok: boolean; cancelled?: boolean; error?: string }>;
+    }>;
     onDropFileOnPlaceholder?: (assetKey: string, file: File) => void | Promise<void>;
     onDropFilesOnPreview?: (files: File[]) => void | Promise<void>;
   }) => {
     latestPreviewProps = props;
+    React.useImperativeHandle(props.ref, () => ({
+      isUpToDate: () => mockPreviewUpToDate,
+      renderNow: () => mockPreviewRenderNow(),
+    }));
     return <div data-testid="mock-preview" />;
   },
 }));
@@ -135,6 +147,8 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
     document.title = ORIGINAL_APP_TITLE;
     mockFilenameTemplate = DEFAULT_FILENAME_TEMPLATE;
     mockAssets = {};
+    mockPreviewUpToDate = true;
+    mockPreviewRenderNow = vi.fn(async () => ({ ok: true }));
     latestPreviewProps = {};
     mockMarkdown = `---\ntitle: "セキュリティ監査報告書\\n2026年度版"\ndate: "2026-11-14"\nconfidential_mode: "strict"\nconfidential_label: "CONFIDENTIAL"\n---\n\n# 概要\n`;
     mockSetMarkdown.mockClear();
@@ -377,5 +391,85 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
         "data:image/png;base64,MOCK_replacement.png"
       );
     });
+  });
+
+  it("keeps PagedPreviewPane mounted with screen-hidden class in editor-only mode and temporarily clears inert/aria-hidden during print (#61)", () => {
+    let ariaHiddenDuringPrint: string | null = "unset";
+    let inertDuringPrint: boolean | null = null;
+
+    const { container } = render(<Workspace />);
+    const previewWrapper = container.querySelector(".print-preview-pane") as HTMLElement;
+    expect(previewWrapper).toBeTruthy();
+
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {
+      ariaHiddenDuringPrint = previewWrapper.getAttribute("aria-hidden");
+      inertDuringPrint = previewWrapper.hasAttribute("inert");
+    });
+
+    // 「エディタのみ」へ切替してもプレビューはアンマウントされず画面非表示クラスで保持される
+    fireEvent.click(screen.getByRole("button", { name: "エディタのみ" }));
+    expect(screen.getByTestId("mock-preview")).toBeTruthy();
+    expect(previewWrapper.classList.contains("print-preview-pane-screen-hidden")).toBe(true);
+    expect(previewWrapper.getAttribute("aria-hidden")).toBe("true");
+    expect(previewWrapper.hasAttribute("inert")).toBe(true);
+
+    // PDF出力ボタン押下時: 印刷中は aria-hidden / inert が解除され、afterprint で復元される
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(ariaHiddenDuringPrint).toBeNull();
+    expect(inertDuringPrint).toBe(false);
+
+    window.dispatchEvent(new Event("afterprint"));
+    expect(previewWrapper.getAttribute("aria-hidden")).toBe("true");
+    expect(previewWrapper.hasAttribute("inert")).toBe(true);
+
+    // ブラウザ直接印刷（Ctrl+P: beforeprint / afterprint）でも同様に解除・復元される
+    window.dispatchEvent(new Event("beforeprint"));
+    expect(previewWrapper.getAttribute("aria-hidden")).toBeNull();
+    expect(previewWrapper.hasAttribute("inert")).toBe(false);
+
+    window.dispatchEvent(new Event("afterprint"));
+    expect(previewWrapper.getAttribute("aria-hidden")).toBe("true");
+    expect(previewWrapper.hasAttribute("inert")).toBe(true);
+  });
+
+  it("waits for PagedPreviewPane.renderNow() before window.print() when preview is stale, and surfaces an error dialog on failure (#61)", async () => {
+    mockPreviewUpToDate = false;
+    let resolveRender!: (val: { ok: boolean; error?: string }) => void;
+    mockPreviewRenderNow = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; error?: string }>((resolve) => {
+          resolveRender = resolve;
+        })
+    );
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    render(<Workspace />);
+    fireEvent.click(screen.getByRole("button", { name: "エディタのみ" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(mockPreviewRenderNow).toHaveBeenCalledTimes(1);
+
+    const preparingBtn = screen.getByRole("button", { name: "組版準備中..." }) as HTMLButtonElement;
+    expect(preparingBtn.disabled).toBe(true);
+
+    resolveRender({ ok: true });
+    await waitFor(() => {
+      expect(printSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByRole("button", { name: "PDF出力 / 印刷" })).toBeTruthy();
+
+    // 失敗時は印刷せずエラーダイアログを表示する
+    mockPreviewRenderNow = vi.fn(async () => ({
+      ok: false,
+      error: "組版テスト失敗",
+    }));
+    printSpy.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(await screen.findByText("PDF出力エラー")).toBeTruthy();
+    expect(screen.getByText("組版テスト失敗")).toBeTruthy();
+    expect(printSpy).not.toHaveBeenCalled();
   });
 });
