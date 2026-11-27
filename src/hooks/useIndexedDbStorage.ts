@@ -45,6 +45,7 @@ export interface UiPreferences {
   layoutMode: LayoutMode;
   isSidebarOpen: boolean;
   filenameTemplate: string;
+  skipPrintHeaderFooterNotice: boolean;
 }
 
 export interface StoredDocument {
@@ -78,6 +79,7 @@ const DEFAULT_PREFS: UiPreferences = {
   layoutMode: "single",
   isSidebarOpen: true,
   filenameTemplate: DEFAULT_FILENAME_TEMPLATE,
+  skipPrintHeaderFooterNotice: false,
 };
 
 function createDocId(): string {

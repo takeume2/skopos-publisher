@@ -53,6 +53,8 @@ interface DocumentSettingsDrawerProps {
     pdf: string;
     md: string;
   };
+  skipPrintHeaderFooterNotice?: boolean;
+  onChangeSkipPrintHeaderFooterNotice?: (skip: boolean) => void;
   onChangeFrontmatter: (next: DocumentFrontmatter) => void;
   onSaveAsset: (assetId: string, dataUrl: string, label?: string) => Promise<void>;
   onRemoveAsset: (assetId: string) => Promise<void>;
@@ -266,6 +268,8 @@ export function DocumentSettingsDrawer({
   filenameTemplate = DEFAULT_FILENAME_TEMPLATE,
   onChangeFilenameTemplate,
   exportFilenamePreview,
+  skipPrintHeaderFooterNotice = false,
+  onChangeSkipPrintHeaderFooterNotice,
   onChangeFrontmatter,
   onSaveAsset,
   onNotice,
@@ -746,6 +750,24 @@ export function DocumentSettingsDrawer({
                     </code>{" "}
                     を自動省略）。
                   </p>
+                </div>
+              )}
+
+              {onChangeSkipPrintHeaderFooterNotice && (
+                <div className="border-t border-slate-800/80 pt-2.5">
+                  <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={!skipPrintHeaderFooterNotice}
+                      onChange={(e) =>
+                        onChangeSkipPrintHeaderFooterNotice(!e.target.checked)
+                      }
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                    />
+                    <span className="leading-relaxed">
+                      印刷前にヘッダー／フッター無効化の注意喚起を表示する
+                    </span>
+                  </label>
                 </div>
               )}
             </div>
