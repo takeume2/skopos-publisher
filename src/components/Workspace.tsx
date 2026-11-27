@@ -55,6 +55,7 @@ type ModalState =
       kind: "print-unresolved-assets";
       items: UnresolvedAssetRef[];
     }
+  | { kind: "reset-sample"; docId: string; title: string }
   | { kind: "delete-doc"; doc: DocumentSummary }
   | { kind: "delete-all-docs"; count: number; totalBytes: number }
   | { kind: "delete-shared-asset"; asset: SharedAssetSummary }
@@ -722,10 +723,6 @@ export function Workspace() {
         saveStatus={saveStatus}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
-        onResetSample={() => {
-          setImportedFilename(null);
-          resetToSample();
-        }}
         onImportMarkdown={(content, filename) => {
           setImportedFilename(filename ?? null);
           setMarkdown(content);
@@ -759,6 +756,13 @@ export function Workspace() {
           onSelectDocument={(docId) => void switchDocument(docId)}
           onCreateDocument={() => void createDocument()}
           onExportDocument={(docId) => void handleExportDocumentById(docId)}
+          onRequestResetSample={() =>
+            setModalState({
+              kind: "reset-sample",
+              docId: activeDocId,
+              title: parsed.frontmatter.title.trim() || "無題のドキュメント",
+            })
+          }
           onRequestDeleteDocument={(doc) =>
             setModalState({ kind: "delete-doc", doc })
           }
@@ -1019,6 +1023,56 @@ export function Workspace() {
               >
                 このまま出力
               </button>
+            </div>
+          </div>
+        )}
+
+        {effectiveModal?.kind === "reset-sample" && (
+          <div className="p-5">
+            <h2
+              id="mdpub-dialog-title"
+              className="text-sm font-semibold text-amber-300"
+            >
+              現在の文書をサンプルで上書きしますか？
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              編集中の文書「
+              <strong className="text-white">{effectiveModal.title}</strong>
+              」の本文を初期サンプル Markdown で上書きします。現在の編集内容は失われます。
+            </p>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              ※ 他の文書および共通画像（ロゴ・表紙・裏表紙）は維持されます。必要に応じて先にバックアップを保存してください。
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  void handleExportDocumentById(effectiveModal.docId)
+                }
+                className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
+              >
+                先に .md を保存
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeModal();
+                    setImportedFilename(null);
+                    void resetToSample();
+                  }}
+                  className="rounded-md bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-500"
+                >
+                  サンプルを復元する
+                </button>
+              </div>
             </div>
           </div>
         )}

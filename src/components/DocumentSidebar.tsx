@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   ListTree,
   Plus,
+  RotateCcw,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -41,6 +42,7 @@ interface DocumentSidebarProps {
   onSelectDocument: (docId: string) => void;
   onCreateDocument: () => void;
   onExportDocument: (docId: string) => void;
+  onRequestResetSample?: () => void;
   onRequestDeleteDocument: (doc: DocumentSummary) => void;
   onRequestDeleteAllDocuments: () => void;
   onAddSharedAsset: (file: File) => void;
@@ -75,6 +77,7 @@ export function DocumentSidebar({
   onSelectDocument,
   onCreateDocument,
   onExportDocument,
+  onRequestResetSample,
   onRequestDeleteDocument,
   onRequestDeleteAllDocuments,
   onAddSharedAsset,
@@ -286,15 +289,29 @@ export function DocumentSidebar({
                 {formatBytes(totalDocsBytes)}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={onRequestDeleteAllDocuments}
-              disabled={documents.length === 0}
-              className={`flex w-full items-center justify-center gap-1.5 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-950/70 disabled:opacity-40 ${FOCUS_RING}`}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span>全ドキュメントを消去・初期化</span>
-            </button>
+            <div className="space-y-1.5">
+              {onRequestResetSample && (
+                <button
+                  type="button"
+                  onClick={onRequestResetSample}
+                  disabled={documents.length === 0}
+                  title="現在の文書を初期サンプル Markdown で上書き復元"
+                  className={`flex w-full items-center justify-center gap-1.5 rounded border border-amber-900/60 bg-amber-950/20 px-2.5 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-950/50 disabled:opacity-40 ${FOCUS_RING}`}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>サンプルを復元（上書き）</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onRequestDeleteAllDocuments}
+                disabled={documents.length === 0}
+                className={`flex w-full items-center justify-center gap-1.5 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-950/70 disabled:opacity-40 ${FOCUS_RING}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>全ドキュメントを消去・初期化</span>
+              </button>
+            </div>
           </div>
         </div>
       ) : activeTab === "outline" ? (

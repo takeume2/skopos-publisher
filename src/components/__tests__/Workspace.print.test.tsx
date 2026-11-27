@@ -458,7 +458,9 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
     await waitFor(() => {
       expect(printSpy).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByRole("button", { name: "PDF出力 / 印刷" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "PDF出力 / 印刷" })
+    ).toBeTruthy();
 
     // 失敗時は印刷せずエラーダイアログを表示する
     mockPreviewRenderNow = vi.fn(async () => ({

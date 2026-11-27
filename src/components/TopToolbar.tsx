@@ -11,7 +11,6 @@ import {
   Loader2,
   PanelLeft,
   Printer,
-  RotateCcw,
   Settings,
   Upload,
 } from "lucide-react";
@@ -24,7 +23,6 @@ interface TopToolbarProps {
   saveStatus: SaveStatus;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  onResetSample: () => void;
   onImportMarkdown: (content: string, filename?: string) => void;
   onImportFolder: (files: FileList) => void;
   onExportMarkdown: () => void;
@@ -44,7 +42,6 @@ export function TopToolbar({
   saveStatus,
   viewMode,
   onViewModeChange,
-  onResetSample,
   onImportMarkdown,
   onImportFolder,
   onExportMarkdown,
@@ -166,16 +163,6 @@ export function TopToolbar({
             <span className="hidden md:inline">プレビューのみ</span>
           </button>
         </div>
-
-        <button
-          type="button"
-          onClick={onResetSample}
-          title="初期サンプルMarkdownへ復元"
-          className={`inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800/70 px-2.5 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white ${FOCUS_RING}`}
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          <span className="hidden lg:inline">サンプル復元</span>
-        </button>
       </div>
 
       <div className="flex items-center gap-2">
