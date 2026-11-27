@@ -469,4 +469,97 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
     expect(screen.getByText(/文字数:/)).toBeTruthy();
     expect(screen.getByText(/行数:/)).toBeTruthy();
   });
+
+  it("enables table column-width popover when cursor is inside a table, inserts directive via preset/keyboard, and resets to auto (#62)", () => {
+    const tableLines = [
+      "# レポート",
+      "",
+      "| ID | 項目名 | 説明 |",
+      "| :--- | :--- | :--- |",
+      "| 1 | 認証 | 詳細 |",
+    ];
+    mockDocLines = tableLines;
+
+    const { rerender } = render(
+      <EditorPane
+        value={tableLines.join("\n")}
+        onChange={vi.fn()}
+        jumpRequest={null}
+      />
+    );
+
+    // 1行目（テーブル外）では列幅ボタンが無効
+    const toolbarColBtn = screen.getByRole("button", {
+      name: "列幅",
+    }) as HTMLButtonElement;
+    expect(toolbarColBtn.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /列幅:/ })).toBeNull();
+
+    // カーソルをテーブル内（4行目）へ移動するとボタン＆ステータスバーバッジが有効化
+    rerender(
+      <EditorPane
+        value={tableLines.join("\n")}
+        onChange={vi.fn()}
+        jumpRequest={{ line: 4, requestId: 1 }}
+      />
+    );
+    mockDispatch.mockClear();
+
+    expect(toolbarColBtn.disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "列幅: 自動" })).toBeTruthy();
+
+    // ポップオーバーを開き、ヘッダー名とプリセットを確認
+    fireEvent.click(toolbarColBtn);
+    expect(screen.getByRole("dialog", { name: "テーブル列幅の調整" })).toBeTruthy();
+    expect(screen.getByLabelText("IDと項目名の境界を調整")).toBeTruthy();
+
+    // プリセット「左を狭く」選択（15, 30, 55）→ 仕切りを右キーで +5% → (20, 25, 55)
+    fireEvent.click(screen.getByRole("button", { name: "左を狭く" }));
+    fireEvent.keyDown(screen.getByLabelText("IDと項目名の境界を調整"), {
+      key: "ArrowRight",
+    });
+    expect(screen.getByText("<!-- col-widths: 20, 25, 55 -->")).toBeTruthy();
+
+    // 適用するとテーブル直前にコメントを単一トランザクションで挿入する
+    fireEvent.click(screen.getByRole("button", { name: "適用する" }));
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    const tableStartOffset = "# レポート\n\n".length;
+    expect(mockDispatch.mock.calls[0][0].changes).toEqual({
+      from: tableStartOffset,
+      to: tableStartOffset,
+      insert: "<!-- col-widths: 20, 25, 55 -->\n",
+    });
+
+    // 既存ディレクティブありの状態で再レンダリング → ステータスバー表示と「自動に戻す」による削除を確認
+    const withDirectiveLines = [
+      "# レポート",
+      "",
+      "<!-- col-widths: 20, 25, 55 -->",
+      "| ID | 項目名 | 説明 |",
+      "| :--- | :--- | :--- |",
+      "| 1 | 認証 | 詳細 |",
+    ];
+    mockDocLines = withDirectiveLines;
+    mockDispatch.mockClear();
+
+    rerender(
+      <EditorPane
+        value={withDirectiveLines.join("\n")}
+        onChange={vi.fn()}
+        jumpRequest={{ line: 5, requestId: 2 }}
+      />
+    );
+    mockDispatch.mockClear();
+
+    const statusBadge = screen.getByRole("button", { name: "列幅: 20/25/55%" });
+    fireEvent.click(statusBadge);
+    fireEvent.click(screen.getByRole("button", { name: "自動に戻す" }));
+
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch.mock.calls[0][0].changes).toEqual({
+      from: tableStartOffset,
+      to: tableStartOffset + "<!-- col-widths: 20, 25, 55 -->\n".length,
+      insert: "",
+    });
+  });
 });

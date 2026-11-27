@@ -177,4 +177,13 @@ describe("buildPagedMediaCss", () => {
     );
     expect(css).toContain("max-height: 100%;");
   });
+
+  it("includes fixed table-layout and word-wrap rules for tables with explicit column widths (#62)", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(".doc-body table.doc-table-fixed-cols {");
+    expect(css).toContain("table-layout: fixed;");
+    expect(css).toContain(".doc-body table.doc-table-fixed-cols th,");
+    expect(css).toContain("overflow-wrap: break-word;");
+  });
 });
