@@ -1528,9 +1528,7 @@ function buildBackCoverHtml(
   const sectionStyle = backCoverImageSrc
     ? ` style="position:relative;background-color:transparent;"`
     : "";
-  const innerStyle = backCoverImageSrc
-    ? ` style="position:relative;z-index:2;"`
-    : "";
+  const innerStyle = backCoverImageSrc ? ` style="z-index:2;"` : "";
 
   return `
     <section class="doc-backcover${extraClass}"${sectionStyle}>
@@ -1538,7 +1536,7 @@ function buildBackCoverHtml(
       <div class="backcover-inner"${innerStyle}>
         <div class="backcover-title">${escapeHtml(formatSingleLineTitle(fm.title))}</div>
         <div class="backcover-divider"></div>
-        <div class="backcover-text">${lines}</div>
+        <p class="backcover-text">${lines}</p>
         <div class="backcover-meta">
           <span>${escapeHtml(fm.author)}</span>
           <span>${escapeHtml(fm.date)}</span>

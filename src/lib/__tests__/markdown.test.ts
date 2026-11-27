@@ -622,5 +622,6 @@ back_cover_text: |-
 
     expect(compiled.html).toContain('</main><section class="doc-backcover"');
     expect(compiled.html).not.toMatch(/<\/main>\s+<section class="doc-backcover"/);
+    expect(compiled.html).toContain('<p class="backcover-text">');
   });
 });

@@ -396,7 +396,7 @@ export function buildPagedMediaCss(
         z-index: 1;
       }
       .doc-backcover.has-backcover-image .backcover-inner {
-        position: relative;
+        position: absolute;
         z-index: 2;
       }
     `;
@@ -776,21 +776,24 @@ export function buildPagedMediaCss(
       break-before: page;
       break-inside: avoid;
       page-break-inside: avoid;
+      position: relative;
+      display: block;
       width: 100%;
       height: ${fullPageHeight};
       max-height: 100%;
       overflow: hidden;
       background-color: var(--doc-bg-subtle);
       color: var(--doc-text);
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-      padding: 26mm 24mm;
     }
 
     ${backCoverImageCss}
 
     .backcover-inner {
+      position: absolute;
+      left: 24mm;
+      right: 24mm;
+      bottom: 26mm;
+      z-index: 2;
       border-top: 1pt solid var(--doc-border);
       padding-top: 6mm;
       break-inside: avoid;
@@ -816,7 +819,7 @@ export function buildPagedMediaCss(
       font-size: 9pt;
       line-height: 1.7;
       color: var(--doc-muted);
-      margin-bottom: 5mm;
+      margin: 0 0 5mm 0;
     }
 
     .backcover-meta {

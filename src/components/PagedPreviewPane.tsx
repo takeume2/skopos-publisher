@@ -51,14 +51,77 @@ interface PagedPreviewPaneProps {
   assetRestoreNonce?: number;
 }
 
+interface PagedLayoutInstance {
+  element?: HTMLElement;
+  bounds?: DOMRect;
+  parentBounds?: DOMRect;
+  gap?: number;
+}
+
+interface PagedHookLike {
+  register?: (...fns: Array<(...args: never[]) => unknown>) => void;
+}
+
 interface DestroyablePreviewer {
   chunker?: {
     stop?: () => void;
     destroy?: () => void;
+    hooks?: {
+      onPageLayout?: PagedHookLike;
+      renderNode?: PagedHookLike;
+    };
   };
   polisher?: {
     destroy?: () => void;
   };
+}
+
+function syncNamedPageLayoutMetrics(layout?: PagedLayoutInstance) {
+  const area = layout?.element;
+  if (!area) return;
+  const size = area.getBoundingClientRect();
+  if (size.width <= 0 || size.height <= 0) return;
+
+  area.style.columnWidth = `${Math.round(size.width)}px`;
+  layout.bounds = size;
+
+  const offsetParent = area.offsetParent as HTMLElement | null;
+  if (offsetParent) {
+    const parentBounds = offsetParent.getBoundingClientRect();
+    layout.parentBounds = parentBounds;
+    const gap = Number.parseFloat(window.getComputedStyle(area).columnGap);
+    if (Number.isFinite(gap) && gap > 0) {
+      layout.gap = gap - (size.left - parentBounds.left);
+    } else {
+      layout.gap = 0;
+    }
+  }
+}
+
+function registerNamedPageMetricsHooks(previewer: DestroyablePreviewer) {
+  const hooks = previewer.chunker?.hooks;
+  if (!hooks) return;
+
+  hooks.onPageLayout?.register?.(
+    (
+      _wrapper: HTMLElement,
+      _breakToken: unknown,
+      layout: PagedLayoutInstance
+    ) => {
+      syncNamedPageLayoutMetrics(layout);
+    }
+  );
+
+  hooks.renderNode?.register?.(
+    (_clone: Node, sourceNode: Node, layout: PagedLayoutInstance) => {
+      if (
+        sourceNode instanceof Element &&
+        sourceNode.hasAttribute("data-page")
+      ) {
+        syncNamedPageLayoutMetrics(layout);
+      }
+    }
+  );
 }
 
 function escapeCssContent(value: string): string {
@@ -371,6 +434,9 @@ export function PagedPreviewPane({
         measureHost.appendChild(stagingEl);
 
         const nextPreviewer = new Previewer();
+        registerNamedPageMetricsHooks(
+          nextPreviewer as unknown as DestroyablePreviewer
+        );
         previewer = nextPreviewer;
         inFlightPreviewerRef.current = nextPreviewer;
 
