@@ -52,8 +52,9 @@ type ModalState =
       hadUnresolvedPlaceholders: boolean;
     }
   | {
-      kind: "print-unresolved-assets";
-      items: UnresolvedAssetRef[];
+      kind: "print-confirm";
+      unresolvedItems: UnresolvedAssetRef[];
+      showHeaderFooterNotice: boolean;
     }
   | { kind: "reset-sample"; docId: string; title: string }
   | { kind: "delete-doc"; doc: DocumentSummary }
@@ -120,6 +121,8 @@ export function Workspace() {
   const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
   const [assetRestoreNonce, setAssetRestoreNonce] = useState<number>(0);
   const [isPreparingPrint, setIsPreparingPrint] = useState<boolean>(false);
+  const [skipPrintNoticeNextTime, setSkipPrintNoticeNextTime] =
+    useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -652,15 +655,18 @@ export function Workspace() {
   }, [runWindowPrint]);
 
   const handlePrint = useCallback(() => {
-    if (unresolvedAssets.length > 0) {
+    const showHeaderFooterNotice = !prefs.skipPrintHeaderFooterNotice;
+    if (unresolvedAssets.length > 0 || showHeaderFooterNotice) {
+      setSkipPrintNoticeNextTime(false);
       setModalState({
-        kind: "print-unresolved-assets",
-        items: unresolvedAssets,
+        kind: "print-confirm",
+        unresolvedItems: unresolvedAssets,
+        showHeaderFooterNotice,
       });
       return;
     }
     executePrint();
-  }, [executePrint, unresolvedAssets]);
+  }, [executePrint, prefs.skipPrintHeaderFooterNotice, unresolvedAssets]);
 
   const startResize = useCallback(() => {
     isResizingRef.current = true;
@@ -870,6 +876,10 @@ export function Workspace() {
             pdf: `${exportBasename}.pdf`,
             md: `${exportBasename}.md`,
           }}
+          skipPrintHeaderFooterNotice={prefs.skipPrintHeaderFooterNotice}
+          onChangeSkipPrintHeaderFooterNotice={(skip) =>
+            void updatePrefs({ skipPrintHeaderFooterNotice: skip })
+          }
           onChangeFrontmatter={handleFrontmatterChange}
           onSaveAsset={saveAsset}
           onRemoveAsset={removeAsset}
@@ -971,33 +981,100 @@ export function Workspace() {
           </div>
         )}
 
-        {effectiveModal?.kind === "print-unresolved-assets" && (
+        {effectiveModal?.kind === "print-confirm" && (
           <div className="p-5">
-            <h2
-              id="mdpub-dialog-title"
-              className="text-sm font-semibold text-amber-300"
-            >
-              未解決の画像があります（{effectiveModal.items.length}件）
-            </h2>
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              以下の画像は現在の文書に登録されていません。このまま出力すると、枠・アイコン・文字を消した空欄のまま箱の寸法を保って出力されます（プレビューと PDF のページ数は一致します）。
-            </p>
-            <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2.5 font-mono text-[11px] text-amber-200">
-              {effectiveModal.items.map((item) => (
-                <li
-                  key={item.assetKey}
-                  className="flex items-center justify-between gap-2"
-                  title={item.assetKey}
+            {effectiveModal.unresolvedItems.length > 0 ? (
+              <>
+                <h2
+                  id="mdpub-dialog-title"
+                  className="text-sm font-semibold text-amber-300"
                 >
-                  <span className="min-w-0 truncate">{item.displayName}</span>
-                  {item.occurrences > 1 && (
-                    <span className="shrink-0 tabular-nums text-[10px] text-slate-400">
-                      ×{item.occurrences}
+                  未解決の画像があります（{effectiveModal.unresolvedItems.length}件）
+                </h2>
+                <p className="mt-2 text-xs leading-relaxed text-slate-300">
+                  以下の画像は現在の文書に登録されていません。このまま出力すると、枠・アイコン・文字を消した空欄のまま箱の寸法を保って出力されます（プレビューと PDF のページ数は一致します）。
+                </p>
+                <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2.5 font-mono text-[11px] text-amber-200">
+                  {effectiveModal.unresolvedItems.map((item) => (
+                    <li
+                      key={item.assetKey}
+                      className="flex items-center justify-between gap-2"
+                      title={item.assetKey}
+                    >
+                      <span className="min-w-0 truncate">{item.displayName}</span>
+                      {item.occurrences > 1 && (
+                        <span className="shrink-0 tabular-nums text-[10px] text-slate-400">
+                          ×{item.occurrences}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <h2
+                id="mdpub-dialog-title"
+                className="text-sm font-semibold text-sky-300"
+              >
+                印刷前の確認（ヘッダー／フッター設定）
+              </h2>
+            )}
+
+            {effectiveModal.showHeaderFooterNotice && (
+              <div
+                className={
+                  effectiveModal.unresolvedItems.length > 0
+                    ? "mt-3 rounded-md border border-sky-500/30 bg-sky-950/25 p-3"
+                    : "mt-2"
+                }
+              >
+                {effectiveModal.unresolvedItems.length > 0 && (
+                  <p className="text-xs font-semibold text-sky-300">
+                    ブラウザ印刷設定の確認
+                  </p>
+                )}
+                <p
+                  className={`${
+                    effectiveModal.unresolvedItems.length > 0 ? "mt-1" : ""
+                  } text-xs leading-relaxed text-slate-300`}
+                >
+                  ブラウザ印刷の「ヘッダーとフッター」が有効なままだと、社内 URL や印刷日時が PDF の上下余白に印字される恐れがあります。
+                </p>
+                <ul className="mt-2.5 space-y-1.5 rounded-md border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] leading-relaxed text-slate-200">
+                  <li className="flex items-start gap-2">
+                    <span className="mt-0.5 text-amber-300" aria-hidden="true">
+                      •
                     </span>
-                  )}
-                </li>
-              ))}
-            </ul>
+                    <span>
+                      詳細設定 → オプションの{" "}
+                      <strong className="text-white">「ヘッダーとフッター」をオフ</strong>{" "}
+                      にしてください
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-0.5 text-sky-400" aria-hidden="true">
+                      •
+                    </span>
+                    <span>
+                      <strong className="text-white">「背景のグラフィック」はオン</strong>{" "}
+                      を推奨（表紙・色帯の出力に必要）
+                    </span>
+                  </li>
+                </ul>
+                <label className="mt-3 flex cursor-pointer items-center gap-2 text-[11px] text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={skipPrintNoticeNextTime}
+                    onChange={(e) =>
+                      setSkipPrintNoticeNextTime(e.target.checked)
+                    }
+                    className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                  />
+                  <span>次回からこの注意喚起を表示しない</span>
+                </label>
+              </div>
+            )}
+
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
@@ -1009,6 +1086,12 @@ export function Workspace() {
               <button
                 type="button"
                 onClick={() => {
+                  if (
+                    effectiveModal.showHeaderFooterNotice &&
+                    skipPrintNoticeNextTime
+                  ) {
+                    void updatePrefs({ skipPrintHeaderFooterNotice: true });
+                  }
                   if (dialogRef.current?.open) {
                     if (typeof dialogRef.current.close === "function") {
                       dialogRef.current.close();
@@ -1019,9 +1102,15 @@ export function Workspace() {
                   setModalState(null);
                   executePrint();
                 }}
-                className="rounded-md bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-500"
+                className={`rounded-md px-3.5 py-1.5 text-xs font-semibold text-white transition ${
+                  effectiveModal.unresolvedItems.length > 0
+                    ? "bg-amber-600 hover:bg-amber-500"
+                    : "bg-sky-600 hover:bg-sky-500"
+                }`}
               >
-                このまま出力
+                {effectiveModal.unresolvedItems.length > 0
+                  ? "このまま出力"
+                  : "印刷ダイアログを開く"}
               </button>
             </div>
           </div>

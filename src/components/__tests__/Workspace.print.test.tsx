@@ -11,6 +11,7 @@ const ORIGINAL_APP_TITLE = "Skopos Publisher — Markdown DTP & PDF Publishing";
 
 let mockMarkdown = "";
 let mockFilenameTemplate = DEFAULT_FILENAME_TEMPLATE;
+let mockSkipPrintHeaderFooterNotice = true;
 const mockSetMarkdown = vi.fn((next: string) => {
   mockMarkdown = next;
 });
@@ -51,6 +52,8 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
     const [filenameTemplate, setFilenameTemplate] = React.useState(
       mockFilenameTemplate
     );
+    const [skipPrintHeaderFooterNotice, setSkipPrintHeaderFooterNotice] =
+      React.useState(mockSkipPrintHeaderFooterNotice);
     const setMarkdown = React.useCallback((next: string) => {
       mockSetMarkdown(next);
       setMarkdownState(next);
@@ -70,9 +73,15 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
       return { title: "テスト文書", content: markdown };
     }, [markdown]);
     const updatePrefs = React.useCallback(
-      async (patch: { filenameTemplate?: string }) => {
+      async (patch: {
+        filenameTemplate?: string;
+        skipPrintHeaderFooterNotice?: boolean;
+      }) => {
         if (typeof patch.filenameTemplate === "string") {
           setFilenameTemplate(patch.filenameTemplate);
+        }
+        if (typeof patch.skipPrintHeaderFooterNotice === "boolean") {
+          setSkipPrintHeaderFooterNotice(patch.skipPrintHeaderFooterNotice);
         }
       },
       []
@@ -109,6 +118,7 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
         layoutMode: "single" as const,
         isSidebarOpen: false,
         filenameTemplate,
+        skipPrintHeaderFooterNotice,
       },
       updatePrefs,
       resetToSample: vi.fn(),
@@ -146,6 +156,7 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
   beforeEach(() => {
     document.title = ORIGINAL_APP_TITLE;
     mockFilenameTemplate = DEFAULT_FILENAME_TEMPLATE;
+    mockSkipPrintHeaderFooterNotice = true;
     mockAssets = {};
     mockPreviewUpToDate = true;
     mockPreviewRenderNow = vi.fn(async () => ({ ok: true }));
@@ -473,5 +484,96 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
     expect(await screen.findByText("PDF出力エラー")).toBeTruthy();
     expect(screen.getByText("組版テスト失敗")).toBeTruthy();
     expect(printSpy).not.toHaveBeenCalled();
+  });
+
+  it("shows header/footer print notice dialog before printing without requiring a mandatory checkbox, and supports cancel or immediate print (#11)", () => {
+    mockSkipPrintHeaderFooterNotice = false;
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    render(<Workspace />);
+
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("印刷前の確認（ヘッダー／フッター設定）")
+    ).toBeTruthy();
+    expect(screen.getByText("「ヘッダーとフッター」をオフ")).toBeTruthy();
+    expect(screen.getByText("「背景のグラフィック」はオン")).toBeTruthy();
+
+    // 必須チェックなしですぐ押せること
+    const openPrintBtn = screen.getByRole("button", {
+      name: "印刷ダイアログを開く",
+    }) as HTMLButtonElement;
+    expect(openPrintBtn.disabled).toBe(false);
+
+    // キャンセルで印刷せず閉じる
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("印刷前の確認（ヘッダー／フッター設定）")
+    ).toBeNull();
+
+    // 再度開き「印刷ダイアログを開く」で印刷実行
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "印刷ダイアログを開く" })
+    );
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(document.title).toBe(
+      "20261114_セキュリティ監査報告書2026年度版_CONFIDENTIAL"
+    );
+  });
+
+  it("persists 'do not show again' preference and lets user re-enable the notice from settings drawer (#11)", () => {
+    mockSkipPrintHeaderFooterNotice = false;
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    render(<Workspace />);
+
+    // 「次回からこの注意喚起を表示しない」をオンにして印刷
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    fireEvent.click(screen.getByLabelText("次回からこの注意喚起を表示しない"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "印刷ダイアログを開く" })
+    );
+    expect(printSpy).toHaveBeenCalledTimes(1);
+
+    // 2回目は確認ダイアログなしで即印刷される
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).toHaveBeenCalledTimes(2);
+    expect(
+      screen.queryByText("印刷前の確認（ヘッダー／フッター設定）")
+    ).toBeNull();
+
+    // 設定ドロワーから再有効化すると、再びダイアログが表示される
+    const settingToggle = screen.getByLabelText(
+      "印刷前にヘッダー／フッター無効化の注意喚起を表示する"
+    ) as HTMLInputElement;
+    expect(settingToggle.checked).toBe(false);
+    fireEvent.click(settingToggle);
+    expect(settingToggle.checked).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByText("印刷前の確認（ヘッダー／フッター設定）")
+    ).toBeTruthy();
+  });
+
+  it("combines unresolved assets warning and browser header/footer notice in a single dialog (#11, #25)", () => {
+    mockSkipPrintHeaderFooterNotice = false;
+    mockMarkdown = `---\ntitle: "統合確認テスト"\ndate: "2026-11-28"\n---\n\n![図1](asset:diagram.png)\n`;
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    render(<Workspace />);
+
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(screen.getByText("未解決の画像があります（1件）")).toBeTruthy();
+    expect(screen.getByText("ブラウザ印刷設定の確認")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "このまま出力" }));
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(document.title).toBe("20261128_統合確認テスト");
   });
 });
