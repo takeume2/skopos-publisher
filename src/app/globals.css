@@ -96,6 +96,23 @@ body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::after {
 }
 
 /* =========================================
+   画面非表示（エディタのみモード）時の印刷用プレビュー保持
+========================================= */
+@media screen {
+  .print-preview-pane-screen-hidden {
+    position: fixed !important;
+    left: -99999px !important;
+    top: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+  }
+}
+
+/* =========================================
    印刷最適化 (@media print)
 ========================================= */
 @media print {
@@ -119,10 +136,15 @@ body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::after {
   .print-zoom-wrapper {
     display: block !important;
     position: static !important;
+    left: auto !important;
+    top: auto !important;
     container-type: normal !important;
     width: auto !important;
     height: auto !important;
     overflow: visible !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
     transform: none !important;
     zoom: 1 !important;
     padding: 0 !important;

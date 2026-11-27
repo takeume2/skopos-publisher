@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -31,7 +37,39 @@ import type { UnresolvedAssetRef } from "@/lib/unresolved-assets";
 import type { LayoutMode } from "@/hooks/useIndexedDbStorage";
 import type { DocumentFrontmatter } from "@/types/document";
 
+export interface RenderForPrintResult {
+  ok: boolean;
+  cancelled?: boolean;
+  error?: string;
+}
+
+export interface PagedPreviewPaneHandle {
+  isUpToDate: () => boolean;
+  renderNow: () => Promise<RenderForPrintResult>;
+}
+
+interface RenderSnapshot {
+  documentId: string | null | undefined;
+  markdown: string;
+  assets: Record<string, string>;
+  assetRestoreNonce: number;
+}
+
+function isSameRenderSnapshot(
+  a: RenderSnapshot | null,
+  b: RenderSnapshot
+): boolean {
+  if (!a) return false;
+  return (
+    a.documentId === b.documentId &&
+    a.markdown === b.markdown &&
+    a.assets === b.assets &&
+    a.assetRestoreNonce === b.assetRestoreNonce
+  );
+}
+
 interface PagedPreviewPaneProps {
+  ref?: React.Ref<PagedPreviewPaneHandle>;
   documentId?: string | null;
   markdown: string;
   frontmatter: DocumentFrontmatter;
@@ -404,6 +442,7 @@ function extractDroppedFiles(dataTransfer: DataTransfer | null): File[] {
 }
 
 export function PagedPreviewPane({
+  ref,
   documentId,
   markdown,
   frontmatter,
@@ -430,6 +469,24 @@ export function PagedPreviewPane({
   const activeOverrideStyleRef = useRef<HTMLStyleElement | null>(null);
   const lastCommittedDocIdRef = useRef<string | null | undefined>(documentId);
   const lastRestoreNonceRef = useRef<number>(assetRestoreNonce);
+  const committedSnapshotRef = useRef<RenderSnapshot | null>(null);
+  const inFlightRenderRef = useRef<{
+    renderId: number;
+    snapshot: RenderSnapshot;
+    promise: Promise<RenderForPrintResult>;
+  } | null>(null);
+  const currentSnapshotRef = useRef<RenderSnapshot>({
+    documentId,
+    markdown,
+    assets,
+    assetRestoreNonce,
+  });
+  currentSnapshotRef.current = {
+    documentId,
+    markdown,
+    assets,
+    assetRestoreNonce,
+  };
   const dragDepthRef = useRef<number>(0);
   const activeDropTargetRef = useRef<HTMLElement | null>(null);
   const renderIdRef = useRef(0);
@@ -455,6 +512,8 @@ export function PagedPreviewPane({
   }, []);
 
   const cleanupPagedStyles = useCallback(() => {
+    committedSnapshotRef.current = null;
+    inFlightRenderRef.current = null;
     activeOverrideStyleRef.current?.remove();
     activeOverrideStyleRef.current = null;
 
@@ -484,12 +543,26 @@ export function PagedPreviewPane({
   }, []);
 
   const renderDocument = useCallback(
-    async (sourceMarkdown: string, targetDocumentId?: string | null) => {
+    (
+      sourceMarkdown: string,
+      targetDocumentId?: string | null
+    ): Promise<RenderForPrintResult> => {
       const host = previewHostRef.current;
       const measureHost = measureHostRef.current;
-      if (!host || !measureHost) return;
+      if (!host || !measureHost) {
+        return Promise.resolve({
+          ok: false,
+          error: "プレビュー領域が初期化されていません。",
+        });
+      }
 
       const currentRenderId = ++renderIdRef.current;
+      const snapshot: RenderSnapshot = {
+        documentId: targetDocumentId,
+        markdown: sourceMarkdown,
+        assets,
+        assetRestoreNonce: currentSnapshotRef.current.assetRestoreNonce,
+      };
       if (inFlightPreviewerRef.current) {
         try {
           inFlightPreviewerRef.current.chunker?.stop?.();
@@ -501,162 +574,229 @@ export function PagedPreviewPane({
       setIsRendering(true);
       setRenderError(null);
 
-      let stagingEl: HTMLDivElement | null = null;
-      let previewer: DestroyablePreviewer | null = null;
-      let nextOverrideStyle: HTMLStyleElement | null = null;
-      let committed = false;
+      const run = async (): Promise<RenderForPrintResult> => {
+        let stagingEl: HTMLDivElement | null = null;
+        let previewer: DestroyablePreviewer | null = null;
+        let nextOverrideStyle: HTMLStyleElement | null = null;
+        let committed = false;
 
-      const discardStaging = () => {
-        nextOverrideStyle?.remove();
-        nextOverrideStyle = null;
-        if (previewer && inFlightPreviewerRef.current === previewer) {
-          inFlightPreviewerRef.current = null;
-        }
-        destroyPreviewerSafely(previewer);
-        previewer = null;
-        stagingEl?.remove();
-        stagingEl = null;
-      };
+        const discardStaging = () => {
+          nextOverrideStyle?.remove();
+          nextOverrideStyle = null;
+          if (previewer && inFlightPreviewerRef.current === previewer) {
+            inFlightPreviewerRef.current = null;
+          }
+          destroyPreviewerSafely(previewer);
+          previewer = null;
+          stagingEl?.remove();
+          stagingEl = null;
+        };
 
-      try {
-        if (document.fonts?.ready) {
-          await document.fonts.ready;
-        }
+        try {
+          if (document.fonts?.ready) {
+            await document.fonts.ready;
+          }
 
-        if (currentRenderId !== renderIdRef.current) return;
+          if (currentRenderId !== renderIdRef.current) {
+            return { ok: false, cancelled: true };
+          }
 
-        const compiled = await compileMarkdownToHtml(sourceMarkdown, assets);
-        await yieldToMain();
+          const compiled = await compileMarkdownToHtml(sourceMarkdown, assets);
+          await yieldToMain();
 
-        if (currentRenderId !== renderIdRef.current) return;
+          if (currentRenderId !== renderIdRef.current) {
+            return { ok: false, cancelled: true };
+          }
 
-        const fm = compiled.frontmatter;
-        const resolvedLogo = fm.logo ? resolveAssetSrc(fm.logo, assets) : "";
-        const resolvedCover = fm.cover_image
-          ? resolveAssetSrc(fm.cover_image, assets)
-          : "";
-        const resolvedBackCover = fm.back_cover_image
-          ? resolveAssetSrc(fm.back_cover_image, assets)
-          : "";
+          const fm = compiled.frontmatter;
+          const resolvedLogo = fm.logo ? resolveAssetSrc(fm.logo, assets) : "";
+          const resolvedCover = fm.cover_image
+            ? resolveAssetSrc(fm.cover_image, assets)
+            : "";
+          const resolvedBackCover = fm.back_cover_image
+            ? resolveAssetSrc(fm.back_cover_image, assets)
+            : "";
 
-        const cssText = buildPagedMediaCss(fm, {
-          logoUrl: resolvedLogo || undefined,
-          coverImageUrl: resolvedCover || undefined,
-          backCoverImageUrl: resolvedBackCover || undefined,
-        });
+          const cssText = buildPagedMediaCss(fm, {
+            logoUrl: resolvedLogo || undefined,
+            coverImageUrl: resolvedCover || undefined,
+            backCoverImageUrl: resolvedBackCover || undefined,
+          });
 
-        const { Previewer } = await import("pagedjs");
+          const { Previewer } = await import("pagedjs");
 
-        if (currentRenderId !== renderIdRef.current) return;
+          if (currentRenderId !== renderIdRef.current) {
+            return { ok: false, cancelled: true };
+          }
 
-        stagingEl = document.createElement("div");
-        stagingEl.setAttribute("data-paged-staging", String(currentRenderId));
-        measureHost.appendChild(stagingEl);
+          stagingEl = document.createElement("div");
+          stagingEl.setAttribute("data-paged-staging", String(currentRenderId));
+          measureHost.appendChild(stagingEl);
 
-        const nextPreviewer = new Previewer();
-        registerNamedPageMetricsHooks(
-          nextPreviewer as unknown as DestroyablePreviewer
-        );
-        previewer = nextPreviewer;
-        inFlightPreviewerRef.current = nextPreviewer;
+          const nextPreviewer = new Previewer();
+          registerNamedPageMetricsHooks(
+            nextPreviewer as unknown as DestroyablePreviewer
+          );
+          previewer = nextPreviewer;
+          inFlightPreviewerRef.current = nextPreviewer;
 
-        const flow = await nextPreviewer.preview(
-          compiled.html,
-          [{ "paged-media.css": cssText }],
-          stagingEl
-        );
+          const flow = await nextPreviewer.preview(
+            compiled.html,
+            [{ "paged-media.css": cssText }],
+            stagingEl
+          );
 
-        if (inFlightPreviewerRef.current === nextPreviewer) {
-          inFlightPreviewerRef.current = null;
-        }
+          if (inFlightPreviewerRef.current === nextPreviewer) {
+            inFlightPreviewerRef.current = null;
+          }
 
-        if (currentRenderId !== renderIdRef.current) {
-          discardStaging();
-          return;
-        }
+          if (currentRenderId !== renderIdRef.current) {
+            discardStaging();
+            return { ok: false, cancelled: true };
+          }
 
-        await yieldToMain();
-        if (currentRenderId !== renderIdRef.current) {
-          discardStaging();
-          return;
-        }
+          await yieldToMain();
+          if (currentRenderId !== renderIdRef.current) {
+            discardStaging();
+            return { ok: false, cancelled: true };
+          }
 
-        nextOverrideStyle = applyBodyPageNumbers(stagingEl, currentRenderId);
+          nextOverrideStyle = applyBodyPageNumbers(stagingEl, currentRenderId);
 
-        const scrollContainer = scrollContainerRef.current;
-        const isDocumentChanged =
-          targetDocumentId !== undefined &&
-          lastCommittedDocIdRef.current !== undefined &&
-          lastCommittedDocIdRef.current !== targetDocumentId;
+          const scrollContainer = scrollContainerRef.current;
+          const isDocumentChanged =
+            targetDocumentId !== undefined &&
+            lastCommittedDocIdRef.current !== undefined &&
+            lastCommittedDocIdRef.current !== targetDocumentId;
 
-        const scrollSnapshot =
-          !isDocumentChanged && scrollContainer
-            ? capturePreviewScrollSnapshot(scrollContainer, host)
-            : null;
+          const scrollSnapshot =
+            !isDocumentChanged && scrollContainer
+              ? capturePreviewScrollSnapshot(scrollContainer, host)
+              : null;
 
-        // 同一同期処理内でスタイル・DOM・スクロール位置を一括差し替え（ちらつき防止）
-        activeOverrideStyleRef.current?.remove();
-        destroyPreviewerSafely(activePreviewerRef.current);
+          // 同一同期処理内でスタイル・DOM・スクロール位置を一括差し替え（ちらつき防止）
+          activeOverrideStyleRef.current?.remove();
+          destroyPreviewerSafely(activePreviewerRef.current);
 
-        if (nextOverrideStyle) {
-          document.head.appendChild(nextOverrideStyle);
-        }
+          if (nextOverrideStyle) {
+            document.head.appendChild(nextOverrideStyle);
+          }
 
-        activePreviewerRef.current = nextPreviewer;
-        activeOverrideStyleRef.current = nextOverrideStyle;
-        lastCommittedDocIdRef.current = targetDocumentId;
+          activePreviewerRef.current = nextPreviewer;
+          activeOverrideStyleRef.current = nextOverrideStyle;
+          lastCommittedDocIdRef.current = targetDocumentId;
 
-        host.replaceChildren(...Array.from(stagingEl.childNodes));
-        stagingEl.remove();
-        stagingEl = null;
-        committed = true;
+          host.replaceChildren(...Array.from(stagingEl.childNodes));
+          stagingEl.remove();
+          stagingEl = null;
+          committed = true;
+          committedSnapshotRef.current = snapshot;
 
-        const pageCount =
-          flow?.total ?? host.querySelectorAll(".pagedjs_page").length;
-        setTotalPages(pageCount);
+          const pageCount =
+            flow?.total ?? host.querySelectorAll(".pagedjs_page").length;
+          setTotalPages(pageCount);
 
-        let restoredPage = 1;
-        if (scrollContainer) {
-          if (isDocumentChanged) {
-            scrollContainer.scrollTop = 0;
-            scrollContainer.scrollLeft = 0;
-            restoredPage = 1;
-          } else if (scrollSnapshot) {
-            restoredPage = restorePreviewScrollSnapshot(
-              scrollContainer,
-              host,
-              scrollSnapshot
-            );
+          let restoredPage = 1;
+          if (scrollContainer) {
+            if (isDocumentChanged) {
+              scrollContainer.scrollTop = 0;
+              scrollContainer.scrollLeft = 0;
+              restoredPage = 1;
+            } else if (scrollSnapshot) {
+              restoredPage = restorePreviewScrollSnapshot(
+                scrollContainer,
+                host,
+                scrollSnapshot
+              );
+            }
+          }
+
+          const clampedPage = Math.min(
+            Math.max(1, restoredPage),
+            Math.max(1, pageCount)
+          );
+          setCurrentPage(clampedPage);
+          setPageInput(String(clampedPage));
+          return { ok: true };
+        } catch (err) {
+          if (!committed) {
+            discardStaging();
+          }
+          if (currentRenderId !== renderIdRef.current) {
+            return { ok: false, cancelled: true };
+          }
+          console.error("Paged.js rendering error:", err);
+          const message =
+            err instanceof Error
+              ? err.message
+              : "組版レンダリング中にエラーが発生しました。";
+          setRenderError(message);
+          return { ok: false, error: message };
+        } finally {
+          if (!committed) {
+            discardStaging();
+          }
+          if (inFlightRenderRef.current?.renderId === currentRenderId) {
+            inFlightRenderRef.current = null;
+          }
+          if (currentRenderId === renderIdRef.current) {
+            setIsRendering(false);
           }
         }
+      };
 
-        const clampedPage = Math.min(
-          Math.max(1, restoredPage),
-          Math.max(1, pageCount)
-        );
-        setCurrentPage(clampedPage);
-        setPageInput(String(clampedPage));
-      } catch (err) {
-        if (!committed) {
-          discardStaging();
-        }
-        if (currentRenderId !== renderIdRef.current) return;
-        console.error("Paged.js rendering error:", err);
-        setRenderError(
-          err instanceof Error
-            ? err.message
-            : "組版レンダリング中にエラーが発生しました。"
-        );
-      } finally {
-        if (!committed) {
-          discardStaging();
-        }
-        if (currentRenderId === renderIdRef.current) {
-          setIsRendering(false);
-        }
-      }
+      const promise = run();
+      inFlightRenderRef.current = {
+        renderId: currentRenderId,
+        snapshot,
+        promise,
+      };
+      return promise;
     },
     [assets]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      isUpToDate: () => {
+        const host = previewHostRef.current;
+        if (!host || !host.querySelector(".pagedjs_page")) {
+          return false;
+        }
+        if (inFlightRenderRef.current || debounceTimerRef.current) {
+          return false;
+        }
+        return isSameRenderSnapshot(
+          committedSnapshotRef.current,
+          currentSnapshotRef.current
+        );
+      },
+      renderNow: () => {
+        const current = currentSnapshotRef.current;
+        const host = previewHostRef.current;
+        if (
+          host?.querySelector(".pagedjs_page") &&
+          !inFlightRenderRef.current &&
+          !debounceTimerRef.current &&
+          isSameRenderSnapshot(committedSnapshotRef.current, current)
+        ) {
+          return Promise.resolve({ ok: true });
+        }
+
+        const inFlight = inFlightRenderRef.current;
+        if (inFlight && isSameRenderSnapshot(inFlight.snapshot, current)) {
+          return inFlight.promise;
+        }
+
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = null;
+        }
+        return renderDocument(current.markdown, current.documentId);
+      },
+    }),
+    [renderDocument]
   );
 
   useEffect(() => {

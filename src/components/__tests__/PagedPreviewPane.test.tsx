@@ -9,7 +9,10 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { DEFAULT_FRONTMATTER } from "@/types/document";
-import { PagedPreviewPane } from "@/components/PagedPreviewPane";
+import {
+  PagedPreviewPane,
+  type PagedPreviewPaneHandle,
+} from "@/components/PagedPreviewPane";
 
 interface MockChunker {
   stop: ReturnType<typeof vi.fn>;
@@ -635,5 +638,64 @@ describe("PagedPreviewPane double buffering & scroll preservation", () => {
       checkOverflow("pagedjs_page pagedjs_named_page pagedjs_toc_page")
     ).toBeUndefined();
     expect(checkOverflow("pagedjs_page")).toBeUndefined();
+  });
+
+  it("exposes isUpToDate and renderNow via ref to join in-flight renders and flush stale updates before printing (#61)", async () => {
+    const handleRef = React.createRef<PagedPreviewPaneHandle>();
+    const { container, rerender } = renderPane({
+      ref: handleRef,
+      documentId: "doc-1",
+      markdown: "# 初版",
+      autoUpdate: false,
+    });
+
+    await waitFor(() => expect(previewQueue.length).toBe(1));
+
+    // 初回描画中は isUpToDate() === false、renderNow() は重複描画を起こさず進行中Promiseに合流する
+    expect(handleRef.current?.isUpToDate()).toBe(false);
+    const joinedPromise = handleRef.current!.renderNow();
+    expect(previewQueue.length).toBe(1);
+
+    await act(async () => {
+      previewQueue[0].resolve([{ id: "page-1", bodyText: "初版本文" }]);
+    });
+
+    await expect(joinedPromise).resolves.toEqual({ ok: true });
+    expect(handleRef.current?.isUpToDate()).toBe(true);
+
+    // 最新状態での renderNow() は新規レンダリングを起こさず即時成功する
+    await expect(handleRef.current!.renderNow()).resolves.toEqual({ ok: true });
+    expect(previewQueue.length).toBe(1);
+
+    // autoUpdate=false のまま本文変更 → isUpToDate() === false になり、renderNow() で即時描画される
+    rerender(
+      <PagedPreviewPane
+        ref={handleRef}
+        documentId="doc-1"
+        markdown="# 更新後の本文"
+        frontmatter={DEFAULT_FRONTMATTER}
+        assets={{}}
+        autoUpdate={false}
+        onToggleAutoUpdate={vi.fn()}
+        showMarginGuides={false}
+        onToggleMarginGuides={vi.fn()}
+        layoutMode="single"
+        onLayoutModeChange={vi.fn()}
+      />
+    );
+
+    expect(handleRef.current?.isUpToDate()).toBe(false);
+    const flushPromise = handleRef.current!.renderNow();
+    await waitFor(() => expect(previewQueue.length).toBe(2));
+
+    await act(async () => {
+      previewQueue[1].resolve([{ id: "page-1", bodyText: "更新後の本文" }]);
+    });
+
+    await expect(flushPromise).resolves.toEqual({ ok: true });
+    expect(handleRef.current?.isUpToDate()).toBe(true);
+    expect(container.querySelector(".paged-preview-canvas")?.textContent).toContain(
+      "更新後の本文"
+    );
   });
 });
