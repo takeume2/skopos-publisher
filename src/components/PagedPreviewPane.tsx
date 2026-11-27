@@ -58,6 +58,15 @@ interface PagedLayoutInstance {
   gap?: number;
 }
 
+interface PagedPageInstance {
+  name?: string;
+  width?: number;
+  height?: number;
+  element?: HTMLElement;
+  pagebox?: HTMLElement;
+  area?: HTMLElement;
+}
+
 interface PagedHookLike {
   register?: (...fns: Array<(...args: never[]) => unknown>) => void;
 }
@@ -66,9 +75,12 @@ interface DestroyablePreviewer {
   chunker?: {
     stop?: () => void;
     destroy?: () => void;
+    on?: (event: string, fn: (...args: never[]) => unknown) => void;
     hooks?: {
+      beforePageLayout?: PagedHookLike;
       onPageLayout?: PagedHookLike;
       renderNode?: PagedHookLike;
+      onOverflow?: PagedHookLike;
     };
   };
   polisher?: {
@@ -76,9 +88,82 @@ interface DestroyablePreviewer {
   };
 }
 
+const SINGLE_PAGE_NAMED_CLASSES = [
+  "pagedjs_cover_page",
+  "pagedjs_chapter_page",
+  "pagedjs_backcover_page",
+] as const;
+
+function isSinglePageNamedPage(pageEl: Element | null | undefined): boolean {
+  if (!pageEl) return false;
+  return SINGLE_PAGE_NAMED_CLASSES.some((cls) => pageEl.classList.contains(cls));
+}
+
+function flushNamedPageGridLayout(pageEl: Element | null | undefined, pagebox?: HTMLElement | null) {
+  if (!pageEl || !pageEl.classList.contains("pagedjs_named_page")) return;
+  const targetPagebox =
+    pagebox ?? pageEl.querySelector<HTMLElement>(".pagedjs_pagebox");
+  if (!targetPagebox) return;
+
+  // Blink (Chrome 158 等) で親要素の --pagedjs-margin-* 変更後に .pagedjs_pagebox の
+  // CSS Grid トラック（22mm/18mm → 0px）が再計算されないケースを確実に解消する
+  const prevDisplay = targetPagebox.style.display;
+  targetPagebox.style.display = "none";
+  void targetPagebox.offsetHeight;
+  targetPagebox.style.display = prevDisplay;
+}
+
+function applyInitialNamedPageClass(
+  page: PagedPageInstance | undefined,
+  content: DocumentFragment | Element | undefined,
+  breakToken: unknown
+) {
+  const pageEl = page?.element;
+  if (!pageEl || breakToken || !content) return;
+  if (pageEl.classList.contains("pagedjs_named_page")) return;
+
+  // <article class="doc-root"><section class="doc-cover" data-page="cover"> のように
+  // ルート要素直下に名前付きページ要素がある場合、Paged.js の beforePageLayout は
+  // 1 ページ目で data-page を見落とすため事前にクラスを付与する
+  const rootEl = "firstElementChild" in content ? content.firstElementChild : null;
+  const firstNamedEl = rootEl?.hasAttribute("data-page")
+    ? rootEl
+    : rootEl?.firstElementChild?.hasAttribute("data-page")
+      ? rootEl.firstElementChild
+      : null;
+  const named = firstNamedEl?.getAttribute("data-page")?.trim();
+  if (!named) return;
+
+  page.name = named;
+  pageEl.classList.add("pagedjs_named_page");
+  pageEl.classList.add(`pagedjs_${named}_page`);
+  pageEl.classList.add(`pagedjs_${named}_first_page`);
+}
+
+function syncNamedPageAreaBeforeLayout(page?: PagedPageInstance) {
+  const pageEl = page?.element;
+  const area = page?.area;
+  if (!pageEl || !area) return;
+
+  flushNamedPageGridLayout(pageEl, page.pagebox);
+
+  const size = area.getBoundingClientRect();
+  if (size.width <= 0 || size.height <= 0) return;
+
+  const roundedWidth = Math.round(size.width);
+  const roundedHeight = Math.round(size.height);
+  area.style.columnWidth = `${roundedWidth}px`;
+  page.width = roundedWidth;
+  page.height = roundedHeight;
+}
+
 function syncNamedPageLayoutMetrics(layout?: PagedLayoutInstance) {
   const area = layout?.element;
   if (!area) return;
+
+  const pageEl = area.closest(".pagedjs_page");
+  flushNamedPageGridLayout(pageEl);
+
   const size = area.getBoundingClientRect();
   if (size.width <= 0 || size.height <= 0) return;
 
@@ -99,8 +184,25 @@ function syncNamedPageLayoutMetrics(layout?: PagedLayoutInstance) {
 }
 
 function registerNamedPageMetricsHooks(previewer: DestroyablePreviewer) {
-  const hooks = previewer.chunker?.hooks;
-  if (!hooks) return;
+  const chunker = previewer.chunker;
+  const hooks = chunker?.hooks;
+  if (!chunker || !hooks) return;
+
+  hooks.beforePageLayout?.register?.(
+    (
+      page: PagedPageInstance,
+      content: DocumentFragment | Element,
+      breakToken: unknown
+    ) => {
+      applyInitialNamedPageClass(page, content, breakToken);
+    }
+  );
+
+  // Chunker の "page" イベントは AtPage.beforePageLayout 完了後かつ page.layout() (new Layout) 実行前に発火するため、
+  // ここで Grid 再計算と columnWidth 同期を行うことで renderTo の bounds 引数にも正しい全幅・全高が渡る
+  chunker.on?.("page", (page: PagedPageInstance) => {
+    syncNamedPageAreaBeforeLayout(page);
+  });
 
   hooks.onPageLayout?.register?.(
     (
@@ -120,6 +222,24 @@ function registerNamedPageMetricsHooks(previewer: DestroyablePreviewer) {
       ) {
         syncNamedPageLayoutMetrics(layout);
       }
+    }
+  );
+
+  // 表紙・章扉・裏表紙は単一ページ固定（overflow: hidden）のため、万一ブラウザ固有の
+  // サブピクセル／計測ズレで overflow が報告されても複数ページ分割・反復ループを抑止する
+  hooks.onOverflow?.register?.(
+    (
+      overflow: Range | undefined,
+      _rendered: HTMLElement,
+      _bounds: DOMRect,
+      layout: PagedLayoutInstance
+    ) => {
+      if (!overflow) return undefined;
+      const pageEl = layout?.element?.closest(".pagedjs_page");
+      if (isSinglePageNamedPage(pageEl)) {
+        return null;
+      }
+      return undefined;
     }
   );
 }

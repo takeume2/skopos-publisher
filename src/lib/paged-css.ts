@@ -516,6 +516,14 @@ export function buildPagedMediaCss(
       @bottom-right { content: none; }
     }
 
+    /* Blink 系ブラウザで --pagedjs-margin-* の変更が .pagedjs_pagebox の CSS Grid トラックへ即反映されない不具合を回避 */
+    .pagedjs_cover_page .pagedjs_pagebox,
+    .pagedjs_chapter_page .pagedjs_pagebox,
+    .pagedjs_backcover_page .pagedjs_pagebox {
+      grid-template-columns: [left] 0px [center] var(--pagedjs-pagebox-width) [right] 0px !important;
+      grid-template-rows: [header] 0px [page] var(--pagedjs-pagebox-height) [footer] 0px !important;
+    }
+
     .doc-root {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact !important;
@@ -793,6 +801,8 @@ export function buildPagedMediaCss(
       left: 24mm;
       right: 24mm;
       bottom: 26mm;
+      max-height: calc(100% - 52mm);
+      overflow: hidden;
       z-index: 2;
       border-top: 1pt solid var(--doc-border);
       padding-top: 6mm;

@@ -164,7 +164,16 @@ describe("buildPagedMediaCss", () => {
     expect(css).toContain(".doc-backcover {");
     expect(css).toContain("position: relative;\n      display: block;");
     expect(css).toContain(
-      ".backcover-inner {\n      position: absolute;\n      left: 24mm;\n      right: 24mm;\n      bottom: 26mm;"
+      ".backcover-inner {\n      position: absolute;\n      left: 24mm;\n      right: 24mm;\n      bottom: 26mm;\n      max-height: calc(100% - 52mm);\n      overflow: hidden;"
+    );
+    expect(css).toContain(
+      ".pagedjs_cover_page .pagedjs_pagebox,\n    .pagedjs_chapter_page .pagedjs_pagebox,\n    .pagedjs_backcover_page .pagedjs_pagebox {"
+    );
+    expect(css).toContain(
+      "grid-template-columns: [left] 0px [center] var(--pagedjs-pagebox-width) [right] 0px !important;"
+    );
+    expect(css).toContain(
+      "grid-template-rows: [header] 0px [page] var(--pagedjs-pagebox-height) [footer] 0px !important;"
     );
     expect(css).toContain("max-height: 100%;");
   });
