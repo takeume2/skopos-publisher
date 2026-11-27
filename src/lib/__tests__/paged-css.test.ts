@@ -154,4 +154,14 @@ describe("buildPagedMediaCss", () => {
     expect(css).toContain(".doc-body tr {");
     expect(css).toContain("display: table-header-group;");
   });
+
+  it("derives full-page cover/chapter/backcover height from Paged.js pagebox and margin variables to prevent backcover layout repeat loops", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(
+      "height: calc(var(--pagedjs-pagebox-height, 297mm) - var(--pagedjs-margin-top, 0px) - var(--pagedjs-margin-bottom, 0px) - 0.5mm);"
+    );
+    expect(css).toContain(".backcover-inner {");
+    expect(css).toContain("max-height: 100%;");
+  });
 });

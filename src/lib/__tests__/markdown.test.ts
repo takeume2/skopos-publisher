@@ -602,4 +602,25 @@ back_cover: false
       '<td><span class="doc-asset-placeholder doc-asset-placeholder-inline" data-asset-key="asset:cell.png"'
     );
   });
+
+  it("omits stray whitespace text nodes before named-page sections such as doc-backcover", async () => {
+    const md = `---
+title: "裏表紙テスト"
+cover: true
+toc: false
+back_cover: true
+back_cover_text: |-
+  株式会社サンプル
+  東京都千代田区1-1
+---
+
+# 本文
+
+テスト段落です。
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    expect(compiled.html).toContain('</main><section class="doc-backcover"');
+    expect(compiled.html).not.toMatch(/<\/main>\s+<section class="doc-backcover"/);
+  });
 });

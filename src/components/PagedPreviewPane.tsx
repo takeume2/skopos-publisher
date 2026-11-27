@@ -52,6 +52,10 @@ interface PagedPreviewPaneProps {
 }
 
 interface DestroyablePreviewer {
+  chunker?: {
+    stop?: () => void;
+    destroy?: () => void;
+  };
   polisher?: {
     destroy?: () => void;
   };
@@ -187,6 +191,11 @@ function applyBodyPageNumbers(
 function destroyPreviewerSafely(previewer: DestroyablePreviewer | null) {
   if (!previewer) return;
   try {
+    previewer.chunker?.stop?.();
+  } catch {
+    // ignore stop errors from partially initialized chunker
+  }
+  try {
     previewer.polisher?.destroy?.();
   } catch {
     // ignore cleanup errors from partially initialized previewer
@@ -234,6 +243,7 @@ export function PagedPreviewPane({
   const previewHostRef = useRef<HTMLDivElement>(null);
   const measureHostRef = useRef<HTMLDivElement>(null);
   const activePreviewerRef = useRef<DestroyablePreviewer | null>(null);
+  const inFlightPreviewerRef = useRef<DestroyablePreviewer | null>(null);
   const activeOverrideStyleRef = useRef<HTMLStyleElement | null>(null);
   const lastCommittedDocIdRef = useRef<string | null | undefined>(documentId);
   const lastRestoreNonceRef = useRef<number>(assetRestoreNonce);
@@ -265,6 +275,15 @@ export function PagedPreviewPane({
     activeOverrideStyleRef.current?.remove();
     activeOverrideStyleRef.current = null;
 
+    if (inFlightPreviewerRef.current) {
+      try {
+        inFlightPreviewerRef.current.chunker?.stop?.();
+      } catch {
+        // ignore stop errors
+      }
+      inFlightPreviewerRef.current = null;
+    }
+
     destroyPreviewerSafely(activePreviewerRef.current);
     activePreviewerRef.current = null;
 
@@ -288,6 +307,14 @@ export function PagedPreviewPane({
       if (!host || !measureHost) return;
 
       const currentRenderId = ++renderIdRef.current;
+      if (inFlightPreviewerRef.current) {
+        try {
+          inFlightPreviewerRef.current.chunker?.stop?.();
+        } catch {
+          // ignore stop errors from superseded chunker
+        }
+        inFlightPreviewerRef.current = null;
+      }
       setIsRendering(true);
       setRenderError(null);
 
@@ -299,6 +326,9 @@ export function PagedPreviewPane({
       const discardStaging = () => {
         nextOverrideStyle?.remove();
         nextOverrideStyle = null;
+        if (previewer && inFlightPreviewerRef.current === previewer) {
+          inFlightPreviewerRef.current = null;
+        }
         destroyPreviewerSafely(previewer);
         previewer = null;
         stagingEl?.remove();
@@ -342,12 +372,17 @@ export function PagedPreviewPane({
 
         const nextPreviewer = new Previewer();
         previewer = nextPreviewer;
+        inFlightPreviewerRef.current = nextPreviewer;
 
         const flow = await nextPreviewer.preview(
           compiled.html,
           [{ "paged-media.css": cssText }],
           stagingEl
         );
+
+        if (inFlightPreviewerRef.current === nextPreviewer) {
+          inFlightPreviewerRef.current = null;
+        }
 
         if (currentRenderId !== renderIdRef.current) {
           discardStaging();

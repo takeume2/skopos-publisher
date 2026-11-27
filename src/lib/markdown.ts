@@ -2278,20 +2278,14 @@ export async function compileMarkdownToHtml(
     ? resolveAssetSrc(frontmatter.back_cover_image, assets)
     : "";
 
-  const coverHtml = buildCoverHtml(frontmatter, logoSrc, coverImageSrc);
-  const tocHtml = buildTocHtml(frontmatter, tocEntries);
-  const backCoverHtml = buildBackCoverHtml(frontmatter, backCoverImageSrc);
+  const coverHtml = buildCoverHtml(frontmatter, logoSrc, coverImageSrc).trim();
+  const tocHtml = buildTocHtml(frontmatter, tocEntries).trim();
+  const backCoverHtml = buildBackCoverHtml(
+    frontmatter,
+    backCoverImageSrc
+  ).trim();
 
-  const fullHtml = `
-    <article class="doc-root theme-${frontmatter.theme} heading-hl-${frontmatter.heading_highlight}">
-      ${coverHtml}
-      ${tocHtml}
-      <main class="doc-body">
-        ${bodyHtml}
-      </main>
-      ${backCoverHtml}
-    </article>
-  `;
+  const fullHtml = `<article class="doc-root theme-${frontmatter.theme} heading-hl-${frontmatter.heading_highlight}">${coverHtml}${tocHtml}<main class="doc-body">${bodyHtml}</main>${backCoverHtml}</article>`;
 
   return {
     frontmatter,

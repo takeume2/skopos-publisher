@@ -190,7 +190,7 @@ export function buildPagedMediaCss(
     fm.page_size,
     fm.orientation
   );
-  const fullPageHeight = `calc(${pageHeight} - 0.3mm)`;
+  const fullPageHeight = `calc(var(--pagedjs-pagebox-height, ${pageHeight}) - var(--pagedjs-margin-top, 0px) - var(--pagedjs-margin-bottom, 0px) - 0.5mm)`;
   const maxImageHeight = `calc(${pageHeight} - 52mm)`;
   const maxPlaceholderHeight = `calc(${pageHeight} - 68mm)`;
 
@@ -535,8 +535,11 @@ export function buildPagedMediaCss(
     .doc-cover {
       page: cover;
       break-after: page;
+      break-inside: avoid;
+      page-break-inside: avoid;
       width: 100%;
       height: ${fullPageHeight};
+      max-height: 100%;
       overflow: hidden;
       background-color: var(--doc-cover-bg);
       color: var(--doc-cover-text);
@@ -631,8 +634,11 @@ export function buildPagedMediaCss(
       page: chapter;
       break-before: page;
       break-after: page;
+      break-inside: avoid;
+      page-break-inside: avoid;
       width: 100%;
       height: ${fullPageHeight};
+      max-height: 100%;
       overflow: hidden;
       background-color: var(--doc-bg-subtle);
       border-left: 7mm solid var(--doc-primary);
@@ -768,8 +774,11 @@ export function buildPagedMediaCss(
     .doc-backcover {
       page: backcover;
       break-before: page;
+      break-inside: avoid;
+      page-break-inside: avoid;
       width: 100%;
       height: ${fullPageHeight};
+      max-height: 100%;
       overflow: hidden;
       background-color: var(--doc-bg-subtle);
       color: var(--doc-text);
@@ -784,6 +793,8 @@ export function buildPagedMediaCss(
     .backcover-inner {
       border-top: 1pt solid var(--doc-border);
       padding-top: 6mm;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     .backcover-title {
