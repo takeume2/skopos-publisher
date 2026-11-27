@@ -138,4 +138,43 @@ describe("buildPagedMediaCss", () => {
       ".doc-cover.has-cover-image .cover-title {\n        font-size: 22pt;\n      }"
     );
   });
+
+  it("includes placeholder box styles for unresolved asset: images (#25)", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(".doc-asset-placeholder {");
+    expect(css).toContain("display: block;");
+    expect(css).toContain(".doc-asset-placeholder-inline {");
+    expect(css).toContain(".doc-asset-placeholder-inner {");
+    expect(css).toContain(".doc-asset-placeholder-icon {");
+    expect(css).toContain(".doc-asset-placeholder-name {");
+    expect(css).toContain(".doc-asset-placeholder-hint {");
+    expect(css).toContain("border: 1.5pt dashed var(--doc-border);");
+    // 長大テーブルで Paged.js のレイアウト反復・欠落を防ぐため、table 全体ではなく tr 単位で改ページ抑止する
+    expect(css).toContain(".doc-body tr {");
+    expect(css).toContain("display: table-header-group;");
+  });
+
+  it("derives full-page cover/chapter/backcover height from Paged.js pagebox and margin variables and avoids flex-end fragmentation on doc-backcover", () => {
+    const css = buildPagedMediaCss(DEFAULT_FRONTMATTER);
+
+    expect(css).toContain(
+      "height: calc(var(--pagedjs-pagebox-height, 297mm) - var(--pagedjs-margin-top, 0px) - var(--pagedjs-margin-bottom, 0px) - 0.5mm);"
+    );
+    expect(css).toContain(".doc-backcover {");
+    expect(css).toContain("position: relative;\n      display: block;");
+    expect(css).toContain(
+      ".backcover-inner {\n      position: absolute;\n      left: 24mm;\n      right: 24mm;\n      bottom: 26mm;\n      max-height: calc(100% - 52mm);\n      overflow: hidden;"
+    );
+    expect(css).toContain(
+      ".pagedjs_cover_page .pagedjs_pagebox,\n    .pagedjs_chapter_page .pagedjs_pagebox,\n    .pagedjs_backcover_page .pagedjs_pagebox {"
+    );
+    expect(css).toContain(
+      "grid-template-columns: [left] 0px [center] var(--pagedjs-pagebox-width) [right] 0px !important;"
+    );
+    expect(css).toContain(
+      "grid-template-rows: [header] 0px [page] var(--pagedjs-pagebox-height) [footer] 0px !important;"
+    );
+    expect(css).toContain("max-height: 100%;");
+  });
 });

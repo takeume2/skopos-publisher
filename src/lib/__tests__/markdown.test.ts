@@ -515,4 +515,113 @@ back_cover: false
     const pageBreakMatches = compiled.html.match(/<div class="page-break"><\/div>/g) || [];
     expect(pageBreakMatches).toHaveLength(1);
   });
+
+  it("renders unresolved asset: images as placeholders preserving dimensions while escaping text (#25)", async () => {
+    const safePng =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const md = `---
+title: "プレースホルダ検証"
+cover: false
+toc: false
+back_cover: false
+---
+
+![アーキテクチャ図](asset:arch.png)
+
+<img src="asset:sized.png" alt="サイズ指定" width="320" height="180" />
+
+<img src="asset:bad_dim.png" alt="不正寸法" width="100px;background:red" />
+
+![解決済み](asset:ok.png)
+`;
+    const compiled = await compileMarkdownToHtml(md, {
+      "asset:ok.png": safePng,
+    });
+
+    expect(compiled.html).toContain('class="doc-asset-placeholder"');
+    expect(compiled.html).toContain('data-asset-key="asset:arch.png"');
+    expect(compiled.html).toContain(
+      '<span class="doc-asset-placeholder-name">arch.png</span>'
+    );
+    expect(compiled.html).toContain("画像をドロップして復元");
+    expect(compiled.html).toContain("doc-asset-placeholder-icon");
+
+    // width / height 属性を引き継ぐこと
+    expect(compiled.html).toContain('data-asset-key="asset:sized.png"');
+    expect(compiled.html).toContain('style="width: 320px; height: 180px;"');
+
+    // 不正な寸法指定は style に混入しないこと
+    expect(compiled.html).toContain('data-asset-key="asset:bad_dim.png"');
+    expect(compiled.html).not.toContain("background:red");
+
+    // 解決済みアセットは通常の <img> として描画されること
+    expect(compiled.html).toContain(`<img src="${safePng}" alt="解決済み">`);
+    expect(compiled.html).not.toContain('data-asset-key="asset:ok.png"');
+  });
+
+  it("extracts block-level unresolved asset placeholders out of <p> to avoid Paged.js inline-flex fragmentation loops while keeping small inline icons inline (#25)", async () => {
+    const md = `---
+title: "ブロック分離検証"
+cover: false
+toc: false
+back_cover: false
+---
+
+手順1の説明です。
+![図1](asset:step1.png)
+手順2の説明です。
+![図2](asset:step2.png)
+
+小さなアイコン <img src="asset:icon.png" width="20" height="20" /> を文中に埋め込みます。
+
+| 列A | 列B |
+| --- | --- |
+| 証跡 | ![表内](asset:cell.png) |
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    // 段落内の通常プレースホルダは <p> を分割してブロック <figure> として独立出力されること
+    expect(compiled.html).toContain("<p>手順1の説明です。</p>");
+    expect(compiled.html).toContain("<p>手順2の説明です。</p>");
+    expect(compiled.html).toContain(
+      '<figure class="doc-asset-placeholder" data-asset-key="asset:step1.png"'
+    );
+    expect(compiled.html).toContain(
+      '<figure class="doc-asset-placeholder" data-asset-key="asset:step2.png"'
+    );
+    expect(compiled.html).not.toContain("<p><figure");
+    expect(compiled.html).not.toContain("</figure></p>");
+
+    // 明示的に小さいインライン寸法の画像は文中に inline <span> として維持されること
+    expect(compiled.html).toContain(
+      '<span class="doc-asset-placeholder doc-asset-placeholder-inline" data-asset-key="asset:icon.png"'
+    );
+
+    // テーブルセル内も妥当なインライン要素として出力されること
+    expect(compiled.html).toContain(
+      '<td><span class="doc-asset-placeholder doc-asset-placeholder-inline" data-asset-key="asset:cell.png"'
+    );
+  });
+
+  it("omits stray whitespace text nodes before named-page sections such as doc-backcover", async () => {
+    const md = `---
+title: "裏表紙テスト"
+cover: true
+toc: false
+back_cover: true
+back_cover_text: |-
+  株式会社サンプル
+  東京都千代田区1-1
+---
+
+# 本文
+
+テスト段落です。
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    expect(compiled.html).toContain('</main><section class="doc-backcover"');
+    expect(compiled.html).not.toMatch(/<\/main>\s+<section class="doc-backcover"/);
+    expect(compiled.html).toContain('<p class="backcover-text">');
+  });
 });

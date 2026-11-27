@@ -11,9 +11,34 @@ import {
 import { DEFAULT_FRONTMATTER } from "@/types/document";
 import { PagedPreviewPane } from "@/components/PagedPreviewPane";
 
+interface MockChunker {
+  stop: ReturnType<typeof vi.fn>;
+  listeners: Record<string, Array<(...args: unknown[]) => unknown>>;
+  on: (event: string, fn: (...args: unknown[]) => unknown) => void;
+  hooks: {
+    beforePageLayout: {
+      fns: Array<(...args: unknown[]) => unknown>;
+      register: (fn: (...args: unknown[]) => unknown) => void;
+    };
+    onPageLayout: {
+      fns: Array<(...args: unknown[]) => unknown>;
+      register: (fn: (...args: unknown[]) => unknown) => void;
+    };
+    renderNode: {
+      fns: Array<(...args: unknown[]) => unknown>;
+      register: (fn: (...args: unknown[]) => unknown) => void;
+    };
+    onOverflow: {
+      fns: Array<(...args: unknown[]) => unknown>;
+      register: (fn: (...args: unknown[]) => unknown) => void;
+    };
+  };
+}
+
 interface DeferredPreview {
   content: string;
   renderTo: HTMLElement;
+  chunker: MockChunker;
   polisher: {
     styleEl: HTMLStyleElement;
     destroy: ReturnType<typeof vi.fn>;
@@ -89,7 +114,18 @@ function populatePagedDom(
 let activeScrollContainer: HTMLElement | null = null;
 
 vi.mock("pagedjs", () => {
+  function makeMockHook() {
+    const fns: Array<(...args: unknown[]) => unknown> = [];
+    return {
+      fns,
+      register: (fn: (...args: unknown[]) => unknown) => {
+        fns.push(fn);
+      },
+    };
+  }
+
   class MockPreviewer {
+    chunker: MockChunker;
     polisher: {
       styleEl: HTMLStyleElement;
       destroy: ReturnType<typeof vi.fn>;
@@ -98,6 +134,21 @@ vi.mock("pagedjs", () => {
     constructor() {
       const styleEl = document.createElement("style");
       styleEl.setAttribute("data-pagedjs-inserted-styles", "true");
+      const listeners: Record<string, Array<(...args: unknown[]) => unknown>> = {};
+      this.chunker = {
+        stop: vi.fn(),
+        listeners,
+        on: (event: string, fn: (...args: unknown[]) => unknown) => {
+          if (!listeners[event]) listeners[event] = [];
+          listeners[event].push(fn);
+        },
+        hooks: {
+          beforePageLayout: makeMockHook(),
+          onPageLayout: makeMockHook(),
+          renderNode: makeMockHook(),
+          onOverflow: makeMockHook(),
+        },
+      };
       this.polisher = {
         styleEl,
         destroy: vi.fn(() => {
@@ -117,6 +168,7 @@ vi.mock("pagedjs", () => {
           previewQueue.push({
             content,
             renderTo: renderTo!,
+            chunker: this.chunker,
             polisher: this.polisher,
             resolve: (pages: MockPageDef[]) => {
               populatePagedDom(
@@ -429,5 +481,159 @@ describe("PagedPreviewPane double buffering & scroll preservation", () => {
 
     const totalPagesSpan = screen.getByText(/\/ \d+ ページ/);
     expect(totalPagesSpan.classList.contains("tabular-nums")).toBe(true);
+  });
+
+  it("routes single-file placeholder drop to onDropFileOnPlaceholder and bulk/document drop to onDropFilesOnPreview (#25)", async () => {
+    const onDropFileOnPlaceholder = vi.fn();
+    const onDropFilesOnPreview = vi.fn();
+
+    const { container, scrollContainer } = renderPane({
+      unresolvedAssets: [
+        {
+          assetKey: "asset:diagram.png",
+          rawName: "diagram.png",
+          displayName: "diagram.png",
+          alt: "図1",
+          occurrences: 1,
+          source: "body",
+        },
+      ],
+      onDropFileOnPlaceholder,
+      onDropFilesOnPreview,
+    });
+
+    expect(screen.getByText(/未解決の画像が 1 件あります/)).toBeTruthy();
+
+    await waitFor(() => expect(previewQueue.length).toBe(1));
+    await act(async () => {
+      previewQueue[0].resolve([{ id: "page-1", bodyText: "本文" }]);
+    });
+
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll(".paged-preview-canvas .pagedjs_page")
+      ).toHaveLength(1);
+    });
+
+    // プレビュー内にプレースホルダ要素を配置してイベント委譲を検証
+    const pageContent = container.querySelector(
+      ".paged-preview-canvas .pagedjs_page_content"
+    )!;
+    const placeholder = document.createElement("span");
+    placeholder.className = "doc-asset-placeholder";
+    placeholder.setAttribute("data-asset-key", "asset:diagram.png");
+    pageContent.appendChild(placeholder);
+
+    // 1件の画像をプレースホルダへ直接ドロップ → ファイル名不問で onDropFileOnPlaceholder
+    const renamedFile = new File(["png"], "another-name.png", {
+      type: "image/png",
+    });
+    fireEvent.drop(placeholder, {
+      dataTransfer: { files: [renamedFile], types: ["Files"] },
+    });
+    expect(onDropFileOnPlaceholder).toHaveBeenCalledTimes(1);
+    expect(onDropFileOnPlaceholder).toHaveBeenCalledWith(
+      "asset:diagram.png",
+      renamedFile
+    );
+    expect(onDropFilesOnPreview).not.toHaveBeenCalled();
+
+    // 複数ファイルをプレースホルダ上へドロップ → 文書全体の一括照合へフォールバック
+    const fileA = new File(["png"], "diagram.png", { type: "image/png" });
+    const fileB = new File(["png"], "other.png", { type: "image/png" });
+    fireEvent.drop(placeholder, {
+      dataTransfer: { files: [fileA, fileB], types: ["Files"] },
+    });
+    expect(onDropFilesOnPreview).toHaveBeenCalledTimes(1);
+    expect(onDropFilesOnPreview).toHaveBeenCalledWith([fileA, fileB]);
+
+    // プレースホルダ外（文書全体）への1件ドロップ → onDropFilesOnPreview
+    onDropFilesOnPreview.mockClear();
+    fireEvent.drop(scrollContainer, {
+      dataTransfer: { files: [fileA], types: ["Files"] },
+    });
+    expect(onDropFilesOnPreview).toHaveBeenCalledTimes(1);
+    expect(onDropFilesOnPreview).toHaveBeenCalledWith([fileA]);
+  });
+
+  it("syncs named-page columnWidth before page.layout and suppresses overflow splits on single-page cover/chapter/backcover pages (#25)", async () => {
+    renderPane();
+    await waitFor(() => expect(previewQueue.length).toBe(1));
+
+    const { chunker } = previewQueue[0];
+    expect(chunker.hooks.beforePageLayout.fns.length).toBeGreaterThan(0);
+    expect(chunker.listeners.page?.length).toBeGreaterThan(0);
+    expect(chunker.hooks.onOverflow.fns.length).toBeGreaterThan(0);
+
+    // 1. 1ページ目で <article><section data-page="cover"> の名前付きページクラスが事前に付与されること
+    const fragment = document.createDocumentFragment();
+    const article = document.createElement("article");
+    const cover = document.createElement("section");
+    cover.setAttribute("data-page", "cover");
+    article.appendChild(cover);
+    fragment.appendChild(article);
+
+    const coverPageEl = document.createElement("div");
+    coverPageEl.className = "pagedjs_page";
+    const coverPagebox = document.createElement("div");
+    coverPagebox.className = "pagedjs_pagebox";
+    const coverArea = document.createElement("div");
+    coverArea.className = "pagedjs_page_content";
+    coverArea.style.columnWidth = "658px";
+    coverArea.getBoundingClientRect = () => makeRect(0, 1122.5, 793.7);
+    coverPagebox.appendChild(coverArea);
+    coverPageEl.appendChild(coverPagebox);
+
+    const mockCoverPage = {
+      name: undefined as string | undefined,
+      width: 658,
+      height: 956,
+      element: coverPageEl,
+      pagebox: coverPagebox,
+      area: coverArea,
+    };
+
+    chunker.hooks.beforePageLayout.fns.forEach((fn) =>
+      fn(mockCoverPage, fragment, false)
+    );
+    expect(mockCoverPage.name).toBe("cover");
+    expect(coverPageEl.classList.contains("pagedjs_named_page")).toBe(true);
+    expect(coverPageEl.classList.contains("pagedjs_cover_page")).toBe(true);
+
+    // 2. "page" イベントで page.layout() 前に columnWidth / width / height が全幅・全高に同期されること
+    chunker.listeners.page.forEach((fn) => fn(mockCoverPage));
+    expect(coverArea.style.columnWidth).toBe("794px");
+    expect(mockCoverPage.width).toBe(794);
+    expect(mockCoverPage.height).toBe(1123);
+
+    // 3. onOverflow は単一ページ用の cover / chapter / backcover のみ null で分割抑止し、本文・目次は通常どおり通過させること
+    const fakeOverflow = {} as Range;
+    const checkOverflow = (pageClasses: string) => {
+      const pEl = document.createElement("div");
+      pEl.className = pageClasses;
+      const aEl = document.createElement("div");
+      aEl.className = "pagedjs_page_content";
+      pEl.appendChild(aEl);
+      const results = chunker.hooks.onOverflow.fns.map((fn) =>
+        fn(fakeOverflow, document.createElement("div"), makeRect(0, 956, 658), {
+          element: aEl,
+        })
+      );
+      return results.find((r) => typeof r !== "undefined");
+    };
+
+    expect(
+      checkOverflow("pagedjs_page pagedjs_named_page pagedjs_backcover_page")
+    ).toBeNull();
+    expect(
+      checkOverflow("pagedjs_page pagedjs_named_page pagedjs_cover_page")
+    ).toBeNull();
+    expect(
+      checkOverflow("pagedjs_page pagedjs_named_page pagedjs_chapter_page")
+    ).toBeNull();
+    expect(
+      checkOverflow("pagedjs_page pagedjs_named_page pagedjs_toc_page")
+    ).toBeUndefined();
+    expect(checkOverflow("pagedjs_page")).toBeUndefined();
   });
 });

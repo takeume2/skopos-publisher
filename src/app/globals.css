@@ -34,6 +34,20 @@
   flex-shrink: 0;
 }
 
+.paged-preview-canvas .doc-asset-placeholder {
+  cursor: copy;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.paged-preview-canvas .doc-asset-placeholder.is-drop-target {
+  border-color: #0284c7 !important;
+  background-color: #e0f2fe !important;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.35);
+}
+
 /* =========================================
    レイアウトデバッグ境界線 (余白ガイド / ?debug=true)
 ========================================= */
@@ -158,6 +172,17 @@ body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::after {
   body.debug-layout .paged-preview-canvas .pagedjs_page:last-child::after {
     content: none !important;
     display: none !important;
+  }
+
+  /* 未解決画像プレースホルダ: 枠・アイコン・文字のみ消し、箱の寸法とページ数を維持 */
+  .doc-asset-placeholder {
+    border-color: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .doc-asset-placeholder-inner {
+    visibility: hidden !important;
   }
 }
 

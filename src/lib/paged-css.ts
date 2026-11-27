@@ -190,8 +190,9 @@ export function buildPagedMediaCss(
     fm.page_size,
     fm.orientation
   );
-  const fullPageHeight = `calc(${pageHeight} - 0.3mm)`;
+  const fullPageHeight = `calc(var(--pagedjs-pagebox-height, ${pageHeight}) - var(--pagedjs-margin-top, 0px) - var(--pagedjs-margin-bottom, 0px) - 0.5mm)`;
   const maxImageHeight = `calc(${pageHeight} - 52mm)`;
+  const maxPlaceholderHeight = `calc(${pageHeight} - 68mm)`;
 
   const isConfidential =
     fm.confidential_mode === "standard" || fm.confidential_mode === "strict";
@@ -395,7 +396,7 @@ export function buildPagedMediaCss(
         z-index: 1;
       }
       .doc-backcover.has-backcover-image .backcover-inner {
-        position: relative;
+        position: absolute;
         z-index: 2;
       }
     `;
@@ -515,6 +516,14 @@ export function buildPagedMediaCss(
       @bottom-right { content: none; }
     }
 
+    /* Blink 系ブラウザで --pagedjs-margin-* の変更が .pagedjs_pagebox の CSS Grid トラックへ即反映されない不具合を回避 */
+    .pagedjs_cover_page .pagedjs_pagebox,
+    .pagedjs_chapter_page .pagedjs_pagebox,
+    .pagedjs_backcover_page .pagedjs_pagebox {
+      grid-template-columns: [left] 0px [center] var(--pagedjs-pagebox-width) [right] 0px !important;
+      grid-template-rows: [header] 0px [page] var(--pagedjs-pagebox-height) [footer] 0px !important;
+    }
+
     .doc-root {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact !important;
@@ -534,8 +543,11 @@ export function buildPagedMediaCss(
     .doc-cover {
       page: cover;
       break-after: page;
+      break-inside: avoid;
+      page-break-inside: avoid;
       width: 100%;
       height: ${fullPageHeight};
+      max-height: 100%;
       overflow: hidden;
       background-color: var(--doc-cover-bg);
       color: var(--doc-cover-text);
@@ -630,8 +642,11 @@ export function buildPagedMediaCss(
       page: chapter;
       break-before: page;
       break-after: page;
+      break-inside: avoid;
+      page-break-inside: avoid;
       width: 100%;
       height: ${fullPageHeight};
+      max-height: 100%;
       overflow: hidden;
       background-color: var(--doc-bg-subtle);
       border-left: 7mm solid var(--doc-primary);
@@ -767,22 +782,32 @@ export function buildPagedMediaCss(
     .doc-backcover {
       page: backcover;
       break-before: page;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      position: relative;
+      display: block;
       width: 100%;
       height: ${fullPageHeight};
+      max-height: 100%;
       overflow: hidden;
       background-color: var(--doc-bg-subtle);
       color: var(--doc-text);
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-      padding: 26mm 24mm;
     }
 
     ${backCoverImageCss}
 
     .backcover-inner {
+      position: absolute;
+      left: 24mm;
+      right: 24mm;
+      bottom: 26mm;
+      max-height: calc(100% - 52mm);
+      overflow: hidden;
+      z-index: 2;
       border-top: 1pt solid var(--doc-border);
       padding-top: 6mm;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     .backcover-title {
@@ -804,7 +829,7 @@ export function buildPagedMediaCss(
       font-size: 9pt;
       line-height: 1.7;
       color: var(--doc-muted);
-      margin-bottom: 5mm;
+      margin: 0 0 5mm 0;
     }
 
     .backcover-meta {
@@ -1452,6 +1477,74 @@ export function buildPagedMediaCss(
       page-break-inside: avoid;
     }
 
+    .doc-asset-placeholder {
+      display: block;
+      width: 100%;
+      height: 48mm;
+      max-width: 100%;
+      max-height: ${maxPlaceholderHeight};
+      margin: 0 0 3.5mm 0;
+      padding: 4mm;
+      border: 1.5pt dashed var(--doc-border);
+      border-radius: 2mm;
+      background-color: var(--doc-bg-subtle);
+      color: var(--doc-muted);
+      text-align: center;
+      overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .doc-asset-placeholder-inline {
+      display: inline-block;
+      vertical-align: middle;
+      margin: 0;
+    }
+
+    .doc-body td .doc-asset-placeholder,
+    .doc-body th .doc-asset-placeholder {
+      display: block;
+      margin: 1mm 0;
+      height: 32mm;
+    }
+
+    .doc-asset-placeholder-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5mm;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      pointer-events: none;
+    }
+
+    .doc-asset-placeholder-icon {
+      width: 8mm;
+      height: 8mm;
+      color: var(--doc-muted);
+      opacity: 0.75;
+      flex-shrink: 0;
+    }
+
+    .doc-asset-placeholder-name {
+      font-family: var(--doc-font-mono);
+      font-size: 8.5pt;
+      font-weight: 600;
+      color: var(--doc-text);
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      line-height: 1.35;
+    }
+
+    .doc-asset-placeholder-hint {
+      font-family: var(--doc-font-sans);
+      font-size: 7.5pt;
+      color: var(--doc-muted);
+      line-height: 1.3;
+    }
+
     .page-break {
       break-before: page;
       page-break-before: always;
@@ -1465,6 +1558,14 @@ export function buildPagedMediaCss(
       border-collapse: collapse;
       margin: 4.5mm 0;
       font-size: 9pt;
+      break-inside: auto;
+    }
+
+    .doc-body thead {
+      display: table-header-group;
+    }
+
+    .doc-body tr {
       break-inside: avoid;
       page-break-inside: avoid;
     }

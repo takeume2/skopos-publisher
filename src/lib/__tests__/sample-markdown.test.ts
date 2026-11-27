@@ -40,7 +40,7 @@ describe("SAMPLE_MARKDOWN demonstration report (#46)", () => {
 
     // 裏表紙テキストに <br /> 改行が複数出力されていること
     expect(compiled.html).toContain(
-      '<div class="backcover-text">株式会社サンプルテクノロジー<br />システムアーキテクチャ推進室<br />東京都千代田区1-1<br />Copyright (c) 2026 Sample Technology Inc. All Rights Reserved.</div>'
+      '<p class="backcover-text">株式会社サンプルテクノロジー<br />システムアーキテクチャ推進室<br />東京都千代田区1-1<br />Copyright (c) 2026 Sample Technology Inc. All Rights Reserved.</p>'
     );
 
     // 追加された表現機能（KPI カード・カラーバー・ドーナツグラフ・円グラフ）

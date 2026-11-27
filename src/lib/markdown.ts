@@ -38,6 +38,10 @@ import {
   CHART_SVG_SIZE,
   type ChartKind,
 } from "./pie-chart";
+import {
+  getAssetDisplayName,
+  sanitizePlaceholderDimension,
+} from "./unresolved-assets";
 
 type CalloutType =
   | "note"
@@ -795,14 +799,299 @@ export function resolveAssetSrc(
   return sanitizeImageUrl(trimmed, options);
 }
 
+function isSmallInlineDimension(cssValue: string | null): boolean {
+  if (!cssValue) return false;
+  const match = cssValue.trim().match(/^(\d+(?:\.\d+)?)(px|mm|cm|pt|in|em|rem)$/i);
+  if (!match) return false;
+  const num = Number.parseFloat(match[1]);
+  const unit = match[2].toLowerCase();
+  if (!Number.isFinite(num) || num <= 0) return false;
+  switch (unit) {
+    case "px":
+      return num <= 48;
+    case "mm":
+      return num <= 15;
+    case "cm":
+      return num <= 1.5;
+    case "pt":
+      return num <= 36;
+    case "in":
+      return num <= 0.6;
+    case "em":
+    case "rem":
+      return num <= 3;
+    default:
+      return false;
+  }
+}
+
+function isBlockPlaceholderNode(node: RootContent): boolean {
+  if (node.type !== "element" || node.tagName !== "figure") return false;
+  const classNames = node.properties?.className;
+  return Array.isArray(classNames) && classNames.includes("doc-asset-placeholder");
+}
+
+function trimSplitParagraphChildren(
+  children: Element["children"]
+): Element["children"] {
+  const result = children.slice();
+
+  while (result.length > 0) {
+    const first = result[0];
+    if (first.type === "text") {
+      const trimmed = first.value.replace(/^[\t\r\n ]+/, "");
+      if (!trimmed) {
+        result.shift();
+        continue;
+      }
+      result[0] = { type: "text", value: trimmed };
+      break;
+    }
+    if (first.type === "element" && first.tagName === "br") {
+      result.shift();
+      continue;
+    }
+    break;
+  }
+
+  while (result.length > 0) {
+    const last = result[result.length - 1];
+    if (last.type === "text") {
+      const trimmed = last.value.replace(/[\t\r\n ]+$/, "");
+      if (!trimmed) {
+        result.pop();
+        continue;
+      }
+      result[result.length - 1] = { type: "text", value: trimmed };
+      break;
+    }
+    if (last.type === "element" && last.tagName === "br") {
+      result.pop();
+      continue;
+    }
+    break;
+  }
+
+  return result;
+}
+
+function splitParagraphsAroundBlockPlaceholders(children: RootContent[]) {
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (child.type !== "element") continue;
+
+    if (
+      child.tagName === "p" &&
+      child.children.some((grandChild) => isBlockPlaceholderNode(grandChild))
+    ) {
+      const replacements: RootContent[] = [];
+      let inlineBuffer: Element["children"] = [];
+
+      const flushInline = () => {
+        const trimmed = trimSplitParagraphChildren(inlineBuffer);
+        inlineBuffer = [];
+        if (trimmed.length > 0) {
+          replacements.push({
+            type: "element",
+            tagName: "p",
+            properties: child.properties ? { ...child.properties } : {},
+            children: trimmed,
+          });
+        }
+      };
+
+      for (const grandChild of child.children) {
+        if (isBlockPlaceholderNode(grandChild)) {
+          flushInline();
+          replacements.push(grandChild);
+        } else {
+          inlineBuffer.push(grandChild);
+        }
+      }
+      flushInline();
+
+      children.splice(i, 1, ...replacements);
+      i += replacements.length - 1;
+      continue;
+    }
+
+    if (child.children && child.children.length > 0) {
+      splitParagraphsAroundBlockPlaceholders(child.children as RootContent[]);
+    }
+  }
+}
+
+function buildUnresolvedAssetPlaceholderNode(
+  assetKey: string,
+  alt: string,
+  widthCss: string | null,
+  heightCss: string | null,
+  mode: "block" | "inline" = "block"
+): Element {
+  const displayName = getAssetDisplayName(assetKey, alt);
+  const styleParts: string[] = [];
+  if (widthCss) {
+    styleParts.push(`width: ${widthCss}`);
+  }
+  if (heightCss) {
+    styleParts.push(`height: ${heightCss}`);
+  }
+
+  const classNames =
+    mode === "inline"
+      ? ["doc-asset-placeholder", "doc-asset-placeholder-inline"]
+      : ["doc-asset-placeholder"];
+
+  const properties: Element["properties"] = {
+    className: classNames,
+    dataAssetKey: assetKey,
+    dataAssetLabel: displayName,
+    role: "group",
+    ariaLabel: `未解決の画像: ${displayName}（画像をドロップして復元）`,
+  };
+  if (styleParts.length > 0) {
+    properties.style = `${styleParts.join("; ")};`;
+  }
+
+  const innerTagName = mode === "inline" ? "span" : "div";
+
+  return {
+    type: "element",
+    tagName: mode === "inline" ? "span" : "figure",
+    properties,
+    children: [
+      {
+        type: "element",
+        tagName: innerTagName,
+        properties: { className: ["doc-asset-placeholder-inner"] },
+        children: [
+          {
+            type: "element",
+            tagName: "svg",
+            properties: {
+              className: ["doc-asset-placeholder-icon"],
+              viewBox: "0 0 24 24",
+              width: "28",
+              height: "28",
+              fill: "none",
+              stroke: "currentColor",
+              strokeWidth: "1.6",
+              strokeLinecap: "round",
+              strokeLinejoin: "round",
+              ariaHidden: "true",
+            },
+            children: [
+              {
+                type: "element",
+                tagName: "rect",
+                properties: {
+                  x: "3",
+                  y: "3",
+                  width: "18",
+                  height: "18",
+                  rx: "2",
+                  ry: "2",
+                },
+                children: [],
+              },
+              {
+                type: "element",
+                tagName: "circle",
+                properties: {
+                  cx: "8.5",
+                  cy: "8.5",
+                  r: "1.5",
+                },
+                children: [],
+              },
+              {
+                type: "element",
+                tagName: "polyline",
+                properties: {
+                  points: "21 15 16 10 5 21",
+                },
+                children: [],
+              },
+            ],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-asset-placeholder-name"] },
+            children: [{ type: "text", value: displayName }],
+          },
+          {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["doc-asset-placeholder-hint"] },
+            children: [{ type: "text", value: "画像をドロップして復元" }],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+const BLOCK_PLACEHOLDER_PARENT_TAGS = new Set([
+  "div",
+  "section",
+  "article",
+  "main",
+  "blockquote",
+  "li",
+  "figure",
+]);
+
 function rehypeResolveAssets(assets: Record<string, string>) {
   return () => (tree: Root) => {
-    visit(tree, "element", (node: Element) => {
+    visit(tree, "element", (node: Element, index, parent) => {
       if (node.tagName !== "img") return;
       const src = node.properties?.src;
       if (typeof src !== "string") return;
-      const resolved = resolveAssetSrc(src, assets, { allowRelativePath: true });
+      const trimmedSrc = src.trim();
+      const resolved = resolveAssetSrc(trimmedSrc, assets, {
+        allowRelativePath: true,
+      });
       if (!resolved) {
+        if (
+          trimmedSrc.startsWith("asset:") &&
+          parent &&
+          typeof index === "number"
+        ) {
+          const alt =
+            typeof node.properties?.alt === "string" ? node.properties.alt : "";
+          const widthCss = sanitizePlaceholderDimension(node.properties?.width);
+          const heightCss = sanitizePlaceholderDimension(node.properties?.height);
+
+          let mode: "block" | "inline" = "inline";
+          if (parent.type === "root") {
+            mode = "block";
+          } else if (parent.type === "element") {
+            if (parent.tagName === "p") {
+              const hasOtherNonWhitespace = parent.children.some(
+                (sibling, sibIdx) =>
+                  sibIdx !== index &&
+                  (sibling.type !== "text" || sibling.value.trim().length > 0)
+              );
+              const isExplicitSmallIcon =
+                hasOtherNonWhitespace &&
+                (isSmallInlineDimension(widthCss) ||
+                  isSmallInlineDimension(heightCss));
+              mode = isExplicitSmallIcon ? "inline" : "block";
+            } else if (BLOCK_PLACEHOLDER_PARENT_TAGS.has(parent.tagName)) {
+              mode = "block";
+            }
+          }
+
+          parent.children[index] = buildUnresolvedAssetPlaceholderNode(
+            trimmedSrc,
+            alt,
+            widthCss,
+            heightCss,
+            mode
+          );
+          return;
+        }
         const nextProps = { ...node.properties };
         delete nextProps.src;
         node.properties = nextProps;
@@ -813,6 +1102,8 @@ function rehypeResolveAssets(assets: Record<string, string>) {
         };
       }
     });
+
+    splitParagraphsAroundBlockPlaceholders(tree.children);
   };
 }
 
@@ -1237,9 +1528,7 @@ function buildBackCoverHtml(
   const sectionStyle = backCoverImageSrc
     ? ` style="position:relative;background-color:transparent;"`
     : "";
-  const innerStyle = backCoverImageSrc
-    ? ` style="position:relative;z-index:2;"`
-    : "";
+  const innerStyle = backCoverImageSrc ? ` style="z-index:2;"` : "";
 
   return `
     <section class="doc-backcover${extraClass}"${sectionStyle}>
@@ -1247,7 +1536,7 @@ function buildBackCoverHtml(
       <div class="backcover-inner"${innerStyle}>
         <div class="backcover-title">${escapeHtml(formatSingleLineTitle(fm.title))}</div>
         <div class="backcover-divider"></div>
-        <div class="backcover-text">${lines}</div>
+        <p class="backcover-text">${lines}</p>
         <div class="backcover-meta">
           <span>${escapeHtml(fm.author)}</span>
           <span>${escapeHtml(fm.date)}</span>
@@ -1987,20 +2276,14 @@ export async function compileMarkdownToHtml(
     ? resolveAssetSrc(frontmatter.back_cover_image, assets)
     : "";
 
-  const coverHtml = buildCoverHtml(frontmatter, logoSrc, coverImageSrc);
-  const tocHtml = buildTocHtml(frontmatter, tocEntries);
-  const backCoverHtml = buildBackCoverHtml(frontmatter, backCoverImageSrc);
+  const coverHtml = buildCoverHtml(frontmatter, logoSrc, coverImageSrc).trim();
+  const tocHtml = buildTocHtml(frontmatter, tocEntries).trim();
+  const backCoverHtml = buildBackCoverHtml(
+    frontmatter,
+    backCoverImageSrc
+  ).trim();
 
-  const fullHtml = `
-    <article class="doc-root theme-${frontmatter.theme} heading-hl-${frontmatter.heading_highlight}">
-      ${coverHtml}
-      ${tocHtml}
-      <main class="doc-body">
-        ${bodyHtml}
-      </main>
-      ${backCoverHtml}
-    </article>
-  `;
+  const fullHtml = `<article class="doc-root theme-${frontmatter.theme} heading-hl-${frontmatter.heading_highlight}">${coverHtml}${tocHtml}<main class="doc-body">${bodyHtml}</main>${backCoverHtml}</article>`;
 
   return {
     frontmatter,
