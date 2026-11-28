@@ -55,6 +55,10 @@ interface DocumentSettingsDrawerProps {
   };
   skipPrintHeaderFooterNotice?: boolean;
   onChangeSkipPrintHeaderFooterNotice?: (skip: boolean) => void;
+  enablePreflightCheck?: boolean;
+  onChangeEnablePreflightCheck?: (enabled: boolean) => void;
+  preflightNgWords?: string;
+  onChangePreflightNgWords?: (words: string) => void;
   onChangeFrontmatter: (next: DocumentFrontmatter) => void;
   onSaveAsset: (assetId: string, dataUrl: string, label?: string) => Promise<void>;
   onRemoveAsset: (assetId: string) => Promise<void>;
@@ -270,6 +274,10 @@ export function DocumentSettingsDrawer({
   exportFilenamePreview,
   skipPrintHeaderFooterNotice = false,
   onChangeSkipPrintHeaderFooterNotice,
+  enablePreflightCheck = true,
+  onChangeEnablePreflightCheck,
+  preflightNgWords = "",
+  onChangePreflightNgWords,
   onChangeFrontmatter,
   onSaveAsset,
   onNotice,
@@ -753,21 +761,62 @@ export function DocumentSettingsDrawer({
                 </div>
               )}
 
-              {onChangeSkipPrintHeaderFooterNotice && (
-                <div className="border-t border-slate-800/80 pt-2.5">
-                  <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={!skipPrintHeaderFooterNotice}
-                      onChange={(e) =>
-                        onChangeSkipPrintHeaderFooterNotice(!e.target.checked)
-                      }
-                      className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                    />
-                    <span className="leading-relaxed">
-                      印刷前にヘッダー／フッター無効化の注意喚起を表示する
-                    </span>
-                  </label>
+              {(onChangeSkipPrintHeaderFooterNotice ||
+                onChangeEnablePreflightCheck ||
+                onChangePreflightNgWords) && (
+                <div className="space-y-2.5 border-t border-slate-800/80 pt-2.5">
+                  {onChangeSkipPrintHeaderFooterNotice && (
+                    <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={!skipPrintHeaderFooterNotice}
+                        onChange={(e) =>
+                          onChangeSkipPrintHeaderFooterNotice(!e.target.checked)
+                        }
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                      />
+                      <span className="leading-relaxed">
+                        印刷前にヘッダー／フッター無効化の注意喚起を表示する
+                      </span>
+                    </label>
+                  )}
+
+                  {onChangeEnablePreflightCheck && (
+                    <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={enablePreflightCheck}
+                        onChange={(e) =>
+                          onChangeEnablePreflightCheck(e.target.checked)
+                        }
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                      />
+                      <span className="leading-relaxed">
+                        印刷前にプリフライトチェック（TBD・仮値・NGワード）を実行する
+                      </span>
+                    </label>
+                  )}
+
+                  {onChangePreflightNgWords && enablePreflightCheck && (
+                    <div>
+                      <label
+                        htmlFor="preflight-ng-words-input"
+                        className="mb-1 block text-[11px] text-slate-400"
+                      >
+                        カスタム NG ワード（改行・カンマ区切り）
+                      </label>
+                      <textarea
+                        id="preflight-ng-words-input"
+                        rows={2}
+                        value={preflightNgWords}
+                        placeholder="例: 社内限定, ProjectX, internal.example.com"
+                        onChange={(e) =>
+                          onChangePreflightNgWords(e.target.value)
+                        }
+                        className="mdpub-auto-textarea w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[11px] text-white placeholder:text-slate-600 focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
