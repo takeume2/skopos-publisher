@@ -42,6 +42,10 @@ import {
   getAssetDisplayName,
   sanitizePlaceholderDimension,
 } from "./unresolved-assets";
+import {
+  COL_WIDTHS_COMMENT_REGEX,
+  resolveTableColumnWidths,
+} from "./table-col-widths";
 
 type CalloutType =
   | "note"
@@ -76,6 +80,7 @@ const SANITIZE_SCHEMA: NonNullable<Parameters<typeof rehypeSanitize>[0]> = {
       "dataChartTitle",
       "dataChartSpec",
       "dataColorbar",
+      "dataColWidths",
     ],
     span: [
       ...(defaultSchema.attributes?.span || []),
@@ -2229,6 +2234,142 @@ function rehypeColorBars() {
   };
 }
 
+function remarkTableColWidthsMarkers() {
+  return (tree: unknown) => {
+    visit(
+      tree as Parameters<typeof visit>[0],
+      "html",
+      (node: { type: string; value?: string }) => {
+        if (typeof node.value !== "string") return;
+        COL_WIDTHS_COMMENT_REGEX.lastIndex = 0;
+        if (!COL_WIDTHS_COMMENT_REGEX.test(node.value)) return;
+        COL_WIDTHS_COMMENT_REGEX.lastIndex = 0;
+        node.value = node.value.replace(
+          COL_WIDTHS_COMMENT_REGEX,
+          (_match, spec: string) =>
+            `\n<div data-col-widths="${escapeHtml(spec.trim())}"></div>\n`
+        );
+      }
+    );
+  };
+}
+
+function getFirstTableRow(tableEl: Element): Element | null {
+  for (const child of tableEl.children) {
+    if (child.type !== "element") continue;
+    if (child.tagName === "thead" || child.tagName === "tbody") {
+      for (const row of child.children) {
+        if (row.type === "element" && row.tagName === "tr") {
+          return row;
+        }
+      }
+    } else if (child.tagName === "tr") {
+      return child;
+    }
+  }
+  return null;
+}
+
+function applyColumnWidthsToTable(tableEl: Element, rawSpec: string) {
+  const firstRow = getFirstTableRow(tableEl);
+  if (!firstRow) return;
+
+  const headerCells = firstRow.children.filter(
+    (c): c is Element =>
+      c.type === "element" && (c.tagName === "th" || c.tagName === "td")
+  );
+  if (headerCells.length === 0) return;
+
+  const widths = resolveTableColumnWidths(rawSpec, headerCells.length);
+  if (!widths) return;
+
+  tableEl.properties = tableEl.properties || {};
+  const existingClass = tableEl.properties.className;
+  const classList = Array.isArray(existingClass)
+    ? existingClass.map(String)
+    : [];
+  if (!classList.includes("doc-table-fixed-cols")) {
+    classList.push("doc-table-fixed-cols");
+  }
+  tableEl.properties.className = classList;
+
+  const colgroup: Element = {
+    type: "element",
+    tagName: "colgroup",
+    properties: {},
+    children: widths.map((w) => ({
+      type: "element",
+      tagName: "col",
+      properties: { style: `width: ${w}%;` },
+      children: [],
+    })),
+  };
+
+  tableEl.children = [
+    colgroup,
+    ...tableEl.children.filter(
+      (c) => !(c.type === "element" && c.tagName === "colgroup")
+    ),
+  ];
+
+  // Also set width on first header row cells so Paged.js page-split thead clones retain widths
+  headerCells.forEach((cell, idx) => {
+    const w = widths[idx];
+    if (typeof w !== "number") return;
+    cell.properties = cell.properties || {};
+    const prevStyle =
+      typeof cell.properties.style === "string"
+        ? cell.properties.style.trim()
+        : "";
+    cell.properties.style = prevStyle
+      ? `${prevStyle.replace(/;?\s*$/, "; ")}width: ${w}%;`
+      : `width: ${w}%;`;
+  });
+}
+
+function transformTableColWidthsChildren(children: RootContent[]) {
+  for (let i = 0; i < children.length; i++) {
+    const node = children[i];
+    if (
+      node.type !== "element" ||
+      node.tagName !== "div" ||
+      !node.properties ||
+      typeof node.properties.dataColWidths !== "string"
+    ) {
+      continue;
+    }
+
+    const spec = node.properties.dataColWidths;
+    let nextIdx = i + 1;
+    while (
+      nextIdx < children.length &&
+      children[nextIdx].type === "text" &&
+      !(children[nextIdx] as Text).value.trim()
+    ) {
+      nextIdx += 1;
+    }
+
+    const nextNode = children[nextIdx];
+    if (nextNode && nextNode.type === "element" && nextNode.tagName === "table") {
+      applyColumnWidthsToTable(nextNode, spec);
+    }
+
+    children.splice(i, 1);
+    i -= 1;
+  }
+}
+
+function rehypeTableColWidths() {
+  return (tree: Root) => {
+    transformTableColWidthsChildren(tree.children);
+    visit(tree, "element", (node: Element) => {
+      if (node.children && node.children.length > 0) {
+        transformTableColWidthsChildren(node.children as RootContent[]);
+      }
+    });
+  };
+}
+
 export async function compileMarkdownToHtml(
   markdown: string,
   assets: Record<string, string> = {}
@@ -2245,6 +2386,7 @@ export async function compileMarkdownToHtml(
     .use(remarkColorBarMarkers)
     .use(remarkChartMarkers)
     .use(remarkCardBlockMarkers)
+    .use(remarkTableColWidthsMarkers)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeSanitize, SANITIZE_SCHEMA)
@@ -2259,6 +2401,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeColorBars)
     .use(rehypeCharts)
     .use(rehypeCardBlocks)
+    .use(rehypeTableColWidths)
     .use(rehypeHeadingHighlights)
     .use(rehypeCodeBlockLabels)
     .use(rehypeKatex, { trust: false, strict: false, maxExpand: 1000 })

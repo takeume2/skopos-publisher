@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Code2,
+  Columns3,
   FilePlus2,
   Heading1,
   Heading2,
@@ -36,11 +37,19 @@ export interface FormatSnippet {
 interface FormatToolbarProps {
   onInsert: (snippet: FormatSnippet) => void;
   onImageUploadClick?: () => void;
+  isTableActive?: boolean;
+  hasCustomTableColWidths?: boolean;
+  isTableColWidthsOpen?: boolean;
+  onToggleTableColWidths?: () => void;
 }
 
 export function FormatToolbar({
   onInsert,
   onImageUploadClick,
+  isTableActive = false,
+  hasCustomTableColWidths = false,
+  isTableColWidthsOpen = false,
+  onToggleTableColWidths,
 }: FormatToolbarProps) {
   const buttons: Array<{
     title: string;
@@ -227,6 +236,30 @@ export function FormatToolbar({
           className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <ImagePlus className="h-3.5 w-3.5" />
+        </button>
+      )}
+
+      {onToggleTableColWidths && (
+        <button
+          type="button"
+          disabled={!isTableActive}
+          aria-expanded={isTableColWidthsOpen}
+          title={
+            isTableActive
+              ? "テーブルの列幅を調整 (<!-- col-widths: ... -->)"
+              : "テーブル内にカーソルを置くと列幅を調整できます"
+          }
+          onClick={onToggleTableColWidths}
+          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-40 ${
+            isTableColWidthsOpen || (isTableActive && hasCustomTableColWidths)
+              ? "border-sky-500/60 bg-sky-500/15 text-sky-300"
+              : isTableActive
+                ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white"
+                : "border-transparent text-slate-400"
+          }`}
+        >
+          <Columns3 className="h-3.5 w-3.5" />
+          <span>列幅</span>
         </button>
       )}
 

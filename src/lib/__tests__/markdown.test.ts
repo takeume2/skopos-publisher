@@ -624,4 +624,66 @@ back_cover_text: |-
     expect(compiled.html).not.toMatch(/<\/main>\s+<section class="doc-backcover"/);
     expect(compiled.html).toContain('<p class="backcover-text">');
   });
+
+  it("applies validated column widths to tables via <!-- col-widths: ... --> with colgroup and th widths while ignoring code blocks and XSS payloads (#62)", async () => {
+    const md = `---
+title: "列幅テスト"
+cover: false
+toc: false
+back_cover: false
+---
+
+<!-- col-widths: 15, 30, 55 -->
+| ID | 項目名 | 説明 |
+| :--- | :--- | ---: |
+| 1 | 認証 | 詳細 |
+
+<!-- col-widths: 1:3 -->
+| キー | 値 |
+| --- | --- |
+| A | B |
+
+| 通常1 | 通常2 |
+| --- | --- |
+| x | y |
+
+<!-- col-widths: 20; background:url(javascript:alert(1)), 80 -->
+| 攻撃1 | 攻撃2 |
+| --- | --- |
+| a | b |
+
+\`\`\`markdown
+<!-- col-widths: 10, 90 -->
+| コード表1 | コード表2 |
+| --- | --- |
+| 1 | 2 |
+\`\`\`
+`;
+    const compiled = await compileMarkdownToHtml(md);
+
+    // 1. 3列表: doc-table-fixed-cols + colgroup + th width
+    expect(compiled.html).toContain('<table class="doc-table-fixed-cols">');
+    expect(compiled.html).toContain(
+      '<colgroup><col style="width: 15%;"><col style="width: 30%;"><col style="width: 55%;"></colgroup>'
+    );
+    expect(compiled.html).toContain('<th align="left" style="width: 15%;">ID</th>');
+    expect(compiled.html).toContain('<th align="left" style="width: 30%;">項目名</th>');
+    expect(compiled.html).toContain('<th align="right" style="width: 55%;">説明</th>');
+
+    // 2. 比率記法 (1:3 -> 25%, 75%)
+    expect(compiled.html).toContain(
+      '<colgroup><col style="width: 25%;"><col style="width: 75%;"></colgroup>'
+    );
+
+    // 3. 通常テーブルは自動幅のまま（fixed-cols なし）
+    expect(compiled.html).toContain("<table>\n<thead>\n<tr>\n<th>通常1</th>");
+
+    // 4. 不正・XSS混入のディレクティブは拒否され style に一切混入しない
+    expect(compiled.html).not.toContain("javascript:");
+    expect(compiled.html).not.toContain("data-col-widths");
+    expect(compiled.html).toContain("<table>\n<thead>\n<tr>\n<th>攻撃1</th>");
+
+    // 5. コードブロック内はリテラル維持
+    expect(compiled.html).toContain("col-widths: 10, 90");
+  });
 });

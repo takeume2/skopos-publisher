@@ -1561,6 +1561,16 @@ export function buildPagedMediaCss(
       break-inside: auto;
     }
 
+    .doc-body table.doc-table-fixed-cols {
+      table-layout: fixed;
+    }
+
+    .doc-body table.doc-table-fixed-cols th,
+    .doc-body table.doc-table-fixed-cols td {
+      overflow-wrap: break-word;
+      word-break: break-word;
+    }
+
     .doc-body thead {
       display: table-header-group;
     }

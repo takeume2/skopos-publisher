@@ -12,7 +12,12 @@ import {
   isFileDragEvent,
   resolveDropInsertPosition,
 } from "@/lib/editor-drop";
+import {
+  computeColWidthsDirectiveEdit,
+  detectTableAtCursorLine,
+} from "@/lib/table-col-widths";
 import { FormatSnippet, FormatToolbar } from "./FormatToolbar";
+import { TableColWidthsPopover } from "./TableColWidthsPopover";
 
 const UNSUPPORTED_DROP_MESSAGE =
   "画像ファイル以外はドロップできません（.md の読込は上部ツールバーをご利用ください）";
@@ -47,6 +52,48 @@ export function EditorPane({
   onCursorLineChangeRef.current = onCursorLineChange;
   const [cursorInfo, setCursorInfo] = useState({ line: 1, col: 1 });
   const [dropNotice, setDropNotice] = useState<string | null>(null);
+  const [isColWidthsOpen, setIsColWidthsOpen] = useState<boolean>(false);
+
+  const activeTableContext = useMemo(
+    () => detectTableAtCursorLine(value, cursorInfo.line),
+    [cursorInfo.line, value]
+  );
+
+  useEffect(() => {
+    if (!activeTableContext && isColWidthsOpen) {
+      setIsColWidthsOpen(false);
+    }
+  }, [activeTableContext, isColWidthsOpen]);
+
+  const applyTableColWidths = useCallback(
+    (nextWidths: number[] | null) => {
+      if (!activeTableContext) return;
+      const edit = computeColWidthsDirectiveEdit(
+        value,
+        activeTableContext,
+        nextWidths
+      );
+      if (!edit) return;
+
+      const view = editorRef.current?.view;
+      if (view) {
+        view.dispatch({
+          changes: { from: edit.from, to: edit.to, insert: edit.insert },
+        });
+        return;
+      }
+
+      const nextDoc =
+        value.slice(0, edit.from) + edit.insert + value.slice(edit.to);
+      onChange(nextDoc);
+    },
+    [activeTableContext, onChange, value]
+  );
+
+  const handleCloseColWidths = useCallback(() => {
+    setIsColWidthsOpen(false);
+    editorRef.current?.view?.focus();
+  }, []);
 
   const executeJumpToLine = useCallback((view: EditorView, line: number) => {
     const doc = view.state?.doc;
@@ -302,6 +349,10 @@ export function EditorPane({
         onImageUploadClick={
           onUploadImage ? () => imageInputRef.current?.click() : undefined
         }
+        isTableActive={Boolean(activeTableContext)}
+        hasCustomTableColWidths={Boolean(activeTableContext?.widths)}
+        isTableColWidthsOpen={isColWidthsOpen}
+        onToggleTableColWidths={() => setIsColWidthsOpen((v) => !v)}
       />
 
       {dropNotice && (
@@ -323,7 +374,7 @@ export function EditorPane({
       )}
 
       <div
-        className="min-h-0 flex-1 overflow-hidden"
+        className="relative min-h-0 flex-1 overflow-hidden"
         onDragOver={(e) => {
           if (!e.defaultPrevented && isFileDragEvent(e.dataTransfer)) {
             e.preventDefault();
@@ -335,6 +386,17 @@ export function EditorPane({
           }
         }}
       >
+        {isColWidthsOpen && activeTableContext && (
+          <div className="absolute left-3 right-3 top-2 z-20 max-w-xl">
+            <TableColWidthsPopover
+              tableContext={activeTableContext}
+              onApply={(widths) => applyTableColWidths(widths)}
+              onResetAuto={() => applyTableColWidths(null)}
+              onClose={handleCloseColWidths}
+            />
+          </div>
+        )}
+
         <CodeMirror
           ref={editorRef}
           value={value}
@@ -357,6 +419,17 @@ export function EditorPane({
         <div className="flex items-center gap-4">
           <span>文字数: {value.length.toLocaleString()}</span>
           <span>行数: {lineCount.toLocaleString()}</span>
+          {activeTableContext && (
+            <button
+              type="button"
+              onClick={() => setIsColWidthsOpen((v) => !v)}
+              className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 transition hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            >
+              {activeTableContext.widths
+                ? `列幅: ${activeTableContext.widths.join("/")}%`
+                : "列幅: 自動"}
+            </button>
+          )}
         </div>
         <div>
           行 {cursorInfo.line}, 列 {cursorInfo.col}
