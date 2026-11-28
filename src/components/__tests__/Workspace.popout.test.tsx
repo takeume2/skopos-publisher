@@ -74,8 +74,21 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
   },
 }));
 
+let latestEditorJumpRequest: { line: number; requestId: number } | null | undefined =
+  undefined;
+
 vi.mock("@/components/EditorPane", () => ({
-  EditorPane: () => <div data-testid="mock-editor" />,
+  EditorPane: (props: {
+    jumpRequest?: { line: number; requestId: number } | null;
+  }) => {
+    latestEditorJumpRequest = props.jumpRequest;
+    return (
+      <div
+        data-testid="mock-editor"
+        data-jump-line={props.jumpRequest?.line ?? ""}
+      />
+    );
+  },
 }));
 
 vi.mock("@/components/PagedPreviewPane", () => ({
@@ -151,6 +164,7 @@ describe("Workspace popout preview integration (#64)", () => {
     mockPreviewRenderNow = vi.fn(async () => ({ ok: true }));
     mockUpdatePrefsSpy.mockClear();
     latestPreviewProps = {};
+    latestEditorJumpRequest = undefined;
   });
 
   afterEach(() => {
@@ -219,9 +233,21 @@ describe("Workspace popout preview integration (#64)", () => {
     act(() => {
       childChannel.postMessage({ type: "preview-ready", sessionId });
     });
-    expect(childReceived.some((m) => (m as { type?: string }).type === "sync-state")).toBe(
-      true
-    );
+    const syncStateMsg = childReceived.find(
+      (m) => (m as { type?: string }).type === "sync-state"
+    ) as
+      | {
+          prefs?: {
+            skipPrintHeaderFooterNotice?: boolean;
+            enablePreflightCheck?: boolean;
+            preflightNgWords?: string;
+          };
+        }
+      | undefined;
+    expect(syncStateMsg).toBeTruthy();
+    expect(syncStateMsg?.prefs?.skipPrintHeaderFooterNotice).toBe(true);
+    expect(syncStateMsg?.prefs?.enablePreflightCheck).toBe(false);
+    expect(syncStateMsg?.prefs?.preflightNgWords).toBe("");
 
     act(() => {
       childChannel.postMessage({
@@ -233,12 +259,34 @@ describe("Workspace popout preview integration (#64)", () => {
     expect(mockUpdatePrefsSpy).toHaveBeenCalledTimes(1);
     expect(mockUpdatePrefsSpy).toHaveBeenCalledWith({ layoutMode: "spread" });
 
-    // 同値の update-prefs や別セッションのメッセージは無視
+    // skipPrintHeaderFooterNotice の差分更新と jump-to-line 受信の検証
+    const focusSpy = vi.spyOn(window, "focus").mockImplementation(() => {});
     act(() => {
       childChannel.postMessage({
         type: "update-prefs",
         sessionId,
-        patch: { layoutMode: "spread" },
+        patch: { skipPrintHeaderFooterNotice: false },
+      });
+      childChannel.postMessage({
+        type: "jump-to-line",
+        sessionId,
+        line: 42,
+      });
+    });
+    expect(mockUpdatePrefsSpy).toHaveBeenCalledWith({
+      skipPrintHeaderFooterNotice: false,
+    });
+    expect(latestEditorJumpRequest?.line).toBe(42);
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("別ウィンドウ表示中")).toBeTruthy();
+
+    // 同値の update-prefs や別セッションのメッセージは無視
+    mockUpdatePrefsSpy.mockClear();
+    act(() => {
+      childChannel.postMessage({
+        type: "update-prefs",
+        sessionId,
+        patch: { layoutMode: "spread", skipPrintHeaderFooterNotice: false },
       });
       childChannel.postMessage({
         type: "update-prefs",
@@ -246,7 +294,16 @@ describe("Workspace popout preview integration (#64)", () => {
         patch: { layoutMode: "single" },
       });
     });
-    expect(mockUpdatePrefsSpy).toHaveBeenCalledTimes(1);
+    expect(mockUpdatePrefsSpy).not.toHaveBeenCalled();
+
+    // 印刷前確認が再有効化されたので戻してから親印刷を検証
+    act(() => {
+      childChannel.postMessage({
+        type: "update-prefs",
+        sessionId,
+        patch: { skipPrintHeaderFooterNotice: true },
+      });
+    });
 
     // 分離中に親から印刷: 親プレビューが stale でも renderNow() を待ってから window.print() される
     mockPreviewUpToDate = false;

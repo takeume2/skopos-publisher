@@ -7,6 +7,9 @@ export interface SyncedPreviewPrefs {
   autoUpdate: boolean;
   showMarginGuides: boolean;
   layoutMode: LayoutMode;
+  skipPrintHeaderFooterNotice?: boolean;
+  enablePreflightCheck?: boolean;
+  preflightNgWords?: string;
 }
 
 export type PreviewSyncMessage =
@@ -53,6 +56,11 @@ export type PreviewSyncMessage =
       type: "update-prefs";
       sessionId: string;
       patch: Partial<SyncedPreviewPrefs>;
+    }
+  | {
+      type: "jump-to-line";
+      sessionId: string;
+      line: number;
     };
 
 function generateRandomSessionId(): string {
@@ -111,11 +119,32 @@ function isLayoutMode(value: unknown): value is LayoutMode {
 function isSyncedPreviewPrefs(value: unknown): value is SyncedPreviewPrefs {
   if (!value || typeof value !== "object") return false;
   const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.autoUpdate === "boolean" &&
-    typeof obj.showMarginGuides === "boolean" &&
-    isLayoutMode(obj.layoutMode)
-  );
+  if (
+    typeof obj.autoUpdate !== "boolean" ||
+    typeof obj.showMarginGuides !== "boolean" ||
+    !isLayoutMode(obj.layoutMode)
+  ) {
+    return false;
+  }
+  if (
+    obj.skipPrintHeaderFooterNotice !== undefined &&
+    typeof obj.skipPrintHeaderFooterNotice !== "boolean"
+  ) {
+    return false;
+  }
+  if (
+    obj.enablePreflightCheck !== undefined &&
+    typeof obj.enablePreflightCheck !== "boolean"
+  ) {
+    return false;
+  }
+  if (
+    obj.preflightNgWords !== undefined &&
+    typeof obj.preflightNgWords !== "string"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -190,6 +219,10 @@ export function parsePreviewSyncMessage(
       if (isLayoutMode(rawPatch.layoutMode)) {
         patch.layoutMode = rawPatch.layoutMode;
       }
+      if (typeof rawPatch.skipPrintHeaderFooterNotice === "boolean") {
+        patch.skipPrintHeaderFooterNotice =
+          rawPatch.skipPrintHeaderFooterNotice;
+      }
       if (Object.keys(patch).length === 0) return null;
       return {
         type: "update-prefs",
@@ -197,6 +230,20 @@ export function parsePreviewSyncMessage(
         patch,
       };
     }
+
+    case "jump-to-line":
+      if (
+        typeof msg.line === "number" &&
+        Number.isInteger(msg.line) &&
+        msg.line >= 1
+      ) {
+        return {
+          type: "jump-to-line",
+          sessionId: expectedSessionId,
+          line: msg.line,
+        };
+      }
+      return null;
 
     default:
       return null;

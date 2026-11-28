@@ -11,39 +11,77 @@ import { useSearchParams } from "next/navigation";
 import { Loader2, PanelRightClose, Printer, WifiOff } from "lucide-react";
 import { loadMergedAssetsForDoc } from "@/hooks/useIndexedDbStorage";
 import { parseMarkdownDocument } from "@/lib/frontmatter";
+import type { PreflightReport } from "@/lib/preflight";
 import {
   createPreviewSyncChannel,
   parsePreviewSyncMessage,
   type PreviewSyncMessage,
   type SyncedPreviewPrefs,
 } from "@/lib/preview-sync";
-import { extractUnresolvedAssetRefs } from "@/lib/unresolved-assets";
+import {
+  extractUnresolvedAssetRefs,
+  type UnresolvedAssetRef,
+} from "@/lib/unresolved-assets";
 import {
   PagedPreviewPane,
   type PagedPreviewPaneHandle,
 } from "./PagedPreviewPane";
+import {
+  evaluatePrintConfirm,
+  PrintConfirmDialogContent,
+} from "./PrintConfirmDialogContent";
 
 type ConnectionState = "connecting" | "connected" | "disconnected" | "unsupported";
+
+type ResolvedSyncedPrefs = Required<SyncedPreviewPrefs>;
 
 interface SyncedDocState {
   documentId: string;
   markdown: string;
   exportBasename: string;
-  prefs: SyncedPreviewPrefs;
+  prefs: ResolvedSyncedPrefs;
 }
+
+type PopoutModalState =
+  | { kind: "notice"; title: string; message: string }
+  | {
+      kind: "print-confirm";
+      unresolvedItems: UnresolvedAssetRef[];
+      preflightReport: PreflightReport | null;
+      showHeaderFooterNotice: boolean;
+    }
+  | null;
 
 interface PopoutPreviewProps {
   /** Optional explicit session ID override (primarily for unit tests) */
   sessionId?: string | null;
 }
 
-const DEFAULT_SYNCED_PREFS: SyncedPreviewPrefs = {
+const DEFAULT_SYNCED_PREFS: ResolvedSyncedPrefs = {
   autoUpdate: true,
   showMarginGuides: false,
   layoutMode: "single",
+  skipPrintHeaderFooterNotice: false,
+  enablePreflightCheck: true,
+  preflightNgWords: "",
 };
 
 const RECONNECT_PING_INTERVAL_MS = 1500;
+
+function resolveSyncedPrefs(prefs: SyncedPreviewPrefs): ResolvedSyncedPrefs {
+  return {
+    autoUpdate: prefs.autoUpdate,
+    showMarginGuides: prefs.showMarginGuides,
+    layoutMode: prefs.layoutMode,
+    skipPrintHeaderFooterNotice:
+      prefs.skipPrintHeaderFooterNotice ??
+      DEFAULT_SYNCED_PREFS.skipPrintHeaderFooterNotice,
+    enablePreflightCheck:
+      prefs.enablePreflightCheck ?? DEFAULT_SYNCED_PREFS.enablePreflightCheck,
+    preflightNgWords:
+      prefs.preflightNgWords ?? DEFAULT_SYNCED_PREFS.preflightNgWords,
+  };
+}
 
 export function PopoutPreview({
   sessionId: propSessionId,
@@ -60,11 +98,20 @@ export function PopoutPreview({
   const [docState, setDocState] = useState<SyncedDocState | null>(null);
   const [assets, setAssets] = useState<Record<string, string>>({});
   const [isPreparingPrint, setIsPreparingPrint] = useState<boolean>(false);
+  const [modalState, setModalState] = useState<PopoutModalState>(null);
+  const [skipPrintNoticeNextTime, setSkipPrintNoticeNextTime] =
+    useState<boolean>(false);
 
   const channelRef = useRef<BroadcastChannel | null>(null);
   const previewPaneRef = useRef<PagedPreviewPaneHandle>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const assetLoadSeqRef = useRef<number>(0);
   const lastLoadedAssetKeyRef = useRef<string>("");
+  const pendingAssetLoadRef = useRef<Promise<void> | null>(null);
+  const latestAssetsRef = useRef<Record<string, string>>(assets);
+  latestAssetsRef.current = assets;
+  const latestDocStateRef = useRef<SyncedDocState | null>(docState);
+  latestDocStateRef.current = docState;
   const hasNotifiedClosedRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
   const isPreparingPrintRef = useRef<boolean>(false);
@@ -76,6 +123,38 @@ export function PopoutPreview({
       isMountedRef.current = false;
     };
   }, []);
+
+  const closeDialogSync = useCallback(() => {
+    const dialogEl = dialogRef.current;
+    if (!dialogEl) return;
+    if (typeof dialogEl.close === "function" && dialogEl.open) {
+      dialogEl.close();
+    }
+    if (dialogEl.hasAttribute("open")) {
+      dialogEl.removeAttribute("open");
+    }
+  }, []);
+
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (!dialogEl) return;
+    if (modalState) {
+      if (!dialogEl.open) {
+        if (typeof dialogEl.showModal === "function") {
+          dialogEl.showModal();
+        } else {
+          dialogEl.setAttribute("open", "");
+        }
+      }
+    } else {
+      closeDialogSync();
+    }
+  }, [closeDialogSync, modalState]);
+
+  const closeModal = useCallback(() => {
+    closeDialogSync();
+    setModalState(null);
+  }, [closeDialogSync]);
 
   const parsed = useMemo(
     () => (docState ? parseMarkdownDocument(docState.markdown) : null),
@@ -133,22 +212,33 @@ export function PopoutPreview({
   }, [applyPrintTitle, restorePrintTitle]);
 
   const refreshAssetsFromDb = useCallback(
-    async (docId: string, assetsVersion: number, force = false) => {
+    (docId: string, assetsVersion: number, force = false): Promise<void> => {
       const loadKey = `${docId}:${assetsVersion}`;
       if (!force && lastLoadedAssetKeyRef.current === loadKey) {
-        return;
+        return pendingAssetLoadRef.current ?? Promise.resolve();
       }
       lastLoadedAssetKeyRef.current = loadKey;
       const reqSeq = ++assetLoadSeqRef.current;
-      try {
-        const merged = await loadMergedAssetsForDoc(docId);
-        if (!isMountedRef.current || reqSeq !== assetLoadSeqRef.current) {
-          return;
+
+      const loadPromise = (async () => {
+        try {
+          const merged = await loadMergedAssetsForDoc(docId);
+          if (!isMountedRef.current || reqSeq !== assetLoadSeqRef.current) {
+            return;
+          }
+          latestAssetsRef.current = merged;
+          setAssets(merged);
+        } catch (err) {
+          console.error("Failed to load assets for popout preview:", err);
+        } finally {
+          if (reqSeq === assetLoadSeqRef.current) {
+            pendingAssetLoadRef.current = null;
+          }
         }
-        setAssets(merged);
-      } catch (err) {
-        console.error("Failed to load assets for popout preview:", err);
-      }
+      })();
+
+      pendingAssetLoadRef.current = loadPromise;
+      return loadPromise;
     },
     []
   );
@@ -188,12 +278,14 @@ export function PopoutPreview({
 
       if (msg.type === "sync-state") {
         setConnectionState("connected");
-        setDocState({
+        const nextDocState: SyncedDocState = {
           documentId: msg.documentId,
           markdown: msg.markdown,
           exportBasename: msg.exportBasename,
-          prefs: msg.prefs,
-        });
+          prefs: resolveSyncedPrefs(msg.prefs),
+        };
+        latestDocStateRef.current = nextDocState;
+        setDocState(nextDocState);
         void refreshAssetsFromDb(msg.documentId, msg.assetsVersion);
         return;
       }
@@ -261,14 +353,15 @@ export function PopoutPreview({
 
   const handleUpdatePrefs = useCallback(
     (patch: Partial<SyncedPreviewPrefs>) => {
-      setDocState((prev) =>
-        prev
-          ? {
-              ...prev,
-              prefs: { ...prev.prefs, ...patch },
-            }
-          : prev
-      );
+      setDocState((prev) => {
+        if (!prev) return prev;
+        const nextState: SyncedDocState = {
+          ...prev,
+          prefs: { ...prev.prefs, ...patch },
+        };
+        latestDocStateRef.current = nextState;
+        return nextState;
+      });
       if (sessionId) {
         postMessageSafely({ type: "update-prefs", sessionId, patch });
       }
@@ -276,18 +369,18 @@ export function PopoutPreview({
     [postMessageSafely, sessionId]
   );
 
-  const handlePrint = useCallback(() => {
-    if (isPreparingPrintRef.current) return;
+  const runWindowPrint = useCallback(() => {
+    applyPrintTitle();
+    try {
+      window.print();
+    } catch (err) {
+      restorePrintTitle();
+      console.error("Failed to open print dialog:", err);
+    }
+  }, [applyPrintTitle, restorePrintTitle]);
 
-    const runPrint = () => {
-      applyPrintTitle();
-      try {
-        window.print();
-      } catch (err) {
-        restorePrintTitle();
-        console.error("Failed to open print dialog:", err);
-      }
-    };
+  const executePrint = useCallback(() => {
+    if (isPreparingPrintRef.current) return;
 
     const handle = previewPaneRef.current;
     if (handle && !handle.isUpToDate()) {
@@ -298,7 +391,15 @@ export function PopoutPreview({
         .then((res) => {
           if (!isMountedRef.current) return;
           if (res.ok) {
-            runPrint();
+            runWindowPrint();
+          } else if (!res.cancelled) {
+            setModalState({
+              kind: "notice",
+              title: "PDF出力エラー",
+              message:
+                res.error ||
+                "組版レンダリングに失敗したため、PDF出力を開始できませんでした。",
+            });
           }
         })
         .finally(() => {
@@ -310,8 +411,83 @@ export function PopoutPreview({
       return;
     }
 
-    runPrint();
-  }, [applyPrintTitle, restorePrintTitle]);
+    runWindowPrint();
+  }, [runWindowPrint]);
+
+  const evaluateAndProceedPrint = useCallback(() => {
+    const currentDoc = latestDocStateRef.current;
+    if (!currentDoc) return;
+
+    const currentAssets = latestAssetsRef.current;
+    const currentUnresolved = extractUnresolvedAssetRefs(
+      currentDoc.markdown,
+      currentAssets
+    );
+    const evaluation = evaluatePrintConfirm({
+      markdown: currentDoc.markdown,
+      assets: currentAssets,
+      unresolvedAssets: currentUnresolved,
+      enablePreflightCheck: currentDoc.prefs.enablePreflightCheck,
+      preflightNgWords: currentDoc.prefs.preflightNgWords,
+      skipPrintHeaderFooterNotice: currentDoc.prefs.skipPrintHeaderFooterNotice,
+    });
+
+    if (evaluation.shouldShowDialog) {
+      setSkipPrintNoticeNextTime(false);
+      setModalState({
+        kind: "print-confirm",
+        unresolvedItems: evaluation.unresolvedItems,
+        preflightReport: evaluation.preflightReport,
+        showHeaderFooterNotice: evaluation.showHeaderFooterNotice,
+      });
+      return;
+    }
+
+    executePrint();
+  }, [executePrint]);
+
+  const handlePrint = useCallback(() => {
+    if (isPreparingPrintRef.current) return;
+
+    if (pendingAssetLoadRef.current) {
+      isPreparingPrintRef.current = true;
+      setIsPreparingPrint(true);
+      void (async () => {
+        try {
+          while (pendingAssetLoadRef.current) {
+            await pendingAssetLoadRef.current;
+          }
+        } finally {
+          isPreparingPrintRef.current = false;
+          if (isMountedRef.current) {
+            setIsPreparingPrint(false);
+          }
+        }
+        if (!isMountedRef.current) return;
+        evaluateAndProceedPrint();
+      })();
+      return;
+    }
+
+    evaluateAndProceedPrint();
+  }, [evaluateAndProceedPrint]);
+
+  const handleJumpToPreflightLine = useCallback(
+    (line: number) => {
+      closeModal();
+      if (sessionId) {
+        postMessageSafely({ type: "jump-to-line", sessionId, line });
+      }
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.focus?.();
+        }
+      } catch {
+        // Ignore cross-window focus restriction errors
+      }
+    },
+    [closeModal, postMessageSafely, sessionId]
+  );
 
   const handleDockBack = useCallback(() => {
     notifyClosedOnce();
@@ -419,6 +595,75 @@ export function PopoutPreview({
           }
         />
       </div>
+
+      <dialog
+        ref={dialogRef}
+        {...({ closedby: "any" } as Record<string, string>)}
+        onClose={closeModal}
+        onClick={(e) => {
+          if (e.target === dialogRef.current) {
+            closeModal();
+          }
+        }}
+        className="mdpub-dialog no-print"
+        aria-labelledby="mdpub-popout-dialog-title"
+      >
+        {modalState?.kind === "notice" && (
+          <div className="p-5">
+            <h2
+              id="mdpub-popout-dialog-title"
+              className="text-sm font-semibold text-white"
+            >
+              {modalState.title}
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              {modalState.message}
+            </p>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        )}
+
+        {modalState?.kind === "print-confirm" && (
+          <PrintConfirmDialogContent
+            titleId="mdpub-popout-dialog-title"
+            unresolvedItems={modalState.unresolvedItems}
+            preflightReport={modalState.preflightReport}
+            showHeaderFooterNotice={modalState.showHeaderFooterNotice}
+            skipPrintNoticeNextTime={skipPrintNoticeNextTime}
+            onChangeSkipPrintNoticeNextTime={setSkipPrintNoticeNextTime}
+            onJumpToLine={
+              connectionState === "connected"
+                ? handleJumpToPreflightLine
+                : undefined
+            }
+            jumpHintText={
+              connectionState === "connected"
+                ? "※ 項目をクリックするとメイン画面のエディタ該当行へ移動します。"
+                : "※ メイン画面と未接続のため、行ジャンプは利用できません。"
+            }
+            onCancel={closeModal}
+            onConfirm={() => {
+              if (
+                modalState.showHeaderFooterNotice &&
+                skipPrintNoticeNextTime
+              ) {
+                handleUpdatePrefs({ skipPrintHeaderFooterNotice: true });
+              }
+              closeDialogSync();
+              setModalState(null);
+              executePrint();
+            }}
+          />
+        )}
+      </dialog>
     </div>
   );
 }

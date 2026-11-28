@@ -81,6 +81,82 @@ describe("preview-sync utilities (#64)", () => {
       sessionId: "sess-1",
       patch: { layoutMode: "spread" },
     });
+
+    // 拡張された印刷・プリフライト設定と jump-to-line メッセージの検証
+    const validSyncWithPrintPrefs = {
+      ...validSync,
+      prefs: {
+        ...validSync.prefs,
+        skipPrintHeaderFooterNotice: true,
+        enablePreflightCheck: true,
+        preflightNgWords: "社外秘, ProjectX",
+      },
+    };
+    expect(parsePreviewSyncMessage(validSyncWithPrintPrefs, "sess-1")).toEqual(
+      validSyncWithPrintPrefs
+    );
+    expect(
+      parsePreviewSyncMessage(
+        {
+          ...validSync,
+          prefs: { ...validSync.prefs, enablePreflightCheck: "yes" },
+        },
+        "sess-1"
+      )
+    ).toBeNull();
+    expect(
+      parsePreviewSyncMessage(
+        {
+          ...validSync,
+          prefs: { ...validSync.prefs, preflightNgWords: 123 },
+        },
+        "sess-1"
+      )
+    ).toBeNull();
+
+    expect(
+      parsePreviewSyncMessage(
+        {
+          type: "update-prefs",
+          sessionId: "sess-1",
+          patch: { skipPrintHeaderFooterNotice: true },
+        },
+        "sess-1"
+      )
+    ).toEqual({
+      type: "update-prefs",
+      sessionId: "sess-1",
+      patch: { skipPrintHeaderFooterNotice: true },
+    });
+
+    expect(
+      parsePreviewSyncMessage(
+        { type: "jump-to-line", sessionId: "sess-1", line: 12 },
+        "sess-1"
+      )
+    ).toEqual({
+      type: "jump-to-line",
+      sessionId: "sess-1",
+      line: 12,
+    });
+    expect(
+      parsePreviewSyncMessage(
+        { type: "jump-to-line", sessionId: "sess-1", line: 0 },
+        "sess-1"
+      )
+    ).toBeNull();
+    expect(
+      parsePreviewSyncMessage(
+        { type: "jump-to-line", sessionId: "sess-1", line: 1.5 },
+        "sess-1"
+      )
+    ).toBeNull();
+    expect(
+      parsePreviewSyncMessage(
+        { type: "jump-to-line", sessionId: "sess-2", line: 12 },
+        "sess-1"
+      )
+    ).toBeNull();
   });
 
   it("loads merged shared and target document assets from IndexedDB while isolating other documents", async () => {

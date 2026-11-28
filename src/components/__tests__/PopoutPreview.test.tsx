@@ -224,7 +224,14 @@ describe("PopoutPreview (/preview) sync, reconnect, race safety, and print (#64)
         documentId: "doc_1",
         markdown: '---\ntitle: "縦モニター報告書"\n---\n\n# 再接続後',
         exportBasename: "20261128_縦モニター報告書",
-        prefs: { autoUpdate: true, showMarginGuides: false, layoutMode: "single" },
+        prefs: {
+          autoUpdate: true,
+          showMarginGuides: false,
+          layoutMode: "single",
+          skipPrintHeaderFooterNotice: true,
+          enablePreflightCheck: false,
+          preflightNgWords: "",
+        },
         assetsVersion: 1,
       });
     });
@@ -336,5 +343,212 @@ describe("PopoutPreview (/preview) sync, reconnect, race safety, and print (#64)
     expect(
       screen.getByText("別ウィンドウプレビューを初期化できませんでした")
     ).toBeTruthy();
+  });
+
+  it("shows preflight/NG-word/header-footer dialog before printing, sends jump-to-line with opener.focus(), syncs skip-notice, and closes dialog before window.print()", async () => {
+    const parentChannel = new MockBroadcastChannel(PREVIEW_SYNC_CHANNEL_NAME);
+    const parentReceived: unknown[] = [];
+    parentChannel.addEventListener("message", (e) => {
+      parentReceived.push(e.data);
+    });
+
+    const openerFocus = vi.fn();
+    const originalOpener = Object.getOwnPropertyDescriptor(window, "opener");
+    Object.defineProperty(window, "opener", {
+      configurable: true,
+      value: { closed: false, focus: openerFocus },
+    });
+
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    try {
+      const { container } = render(<PopoutPreview sessionId="sess-preflight" />);
+
+      act(() => {
+        parentChannel.postMessage({
+          type: "sync-state",
+          sessionId: "sess-preflight",
+          documentId: "doc_pf",
+          markdown: [
+            "---",
+            'title: "提案書"',
+            'author: "山田太郎"',
+            'date: "2026-11-28"',
+            "---",
+            "",
+            "# 概要",
+            "ここに社外秘コードがあります（TBD）",
+          ].join("\n"),
+          exportBasename: "20261128_提案書",
+          prefs: {
+            autoUpdate: true,
+            showMarginGuides: false,
+            layoutMode: "single",
+            skipPrintHeaderFooterNotice: false,
+            enablePreflightCheck: true,
+            preflightNgWords: "社外秘コード",
+          },
+          assetsVersion: 1,
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("popout-doc-id").textContent).toBe("doc_pf");
+      });
+
+      // 印刷押下で即 window.print() されず、プリフライト確認ダイアログが開く
+      fireEvent.click(screen.getByRole("button", { name: "印刷" }));
+      expect(printSpy).not.toHaveBeenCalled();
+      expect(screen.getByText(/出力前プリフライトチェック/)).toBeTruthy();
+      expect(screen.getByText(/未記入・仮表現「TBD」が残っています。/)).toBeTruthy();
+      expect(screen.getByText(/NG ワード「社外秘コード」が含まれています。/)).toBeTruthy();
+      expect(screen.getByText("「ヘッダーとフッター」をオフ")).toBeTruthy();
+
+      // 指摘行クリックで jump-to-line を親へ送信し window.opener.focus() を呼ぶ
+      parentReceived.length = 0;
+      fireEvent.click(screen.getByText(/NG ワード「社外秘コード」が含まれています。/));
+      expect(parentReceived).toContainEqual({
+        type: "jump-to-line",
+        sessionId: "sess-preflight",
+        line: 8,
+      });
+      expect(openerFocus).toHaveBeenCalledTimes(1);
+
+      // 再度印刷 → 「次回から非表示」チェック付きで「このまま出力」
+      parentReceived.length = 0;
+      fireEvent.click(screen.getByRole("button", { name: "印刷" }));
+      fireEvent.click(
+        screen.getByRole("checkbox", {
+          name: "次回からこの注意喚起を表示しない",
+        })
+      );
+
+      let dialogOpenDuringPrint: boolean | null = null;
+      let dialogHasOpenAttrDuringPrint: boolean | null = null;
+      printSpy.mockImplementation(() => {
+        const dialogEl = container.querySelector("dialog");
+        dialogOpenDuringPrint = dialogEl ? dialogEl.open : null;
+        dialogHasOpenAttrDuringPrint = dialogEl
+          ? dialogEl.hasAttribute("open")
+          : null;
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "このまま出力" }));
+      expect(printSpy).toHaveBeenCalledTimes(1);
+      expect(dialogOpenDuringPrint).toBe(false);
+      expect(dialogHasOpenAttrDuringPrint).toBe(false);
+      expect(parentReceived).toContainEqual({
+        type: "update-prefs",
+        sessionId: "sess-preflight",
+        patch: { skipPrintHeaderFooterNotice: true },
+      });
+    } finally {
+      if (originalOpener) {
+        Object.defineProperty(window, "opener", originalOpener);
+      } else {
+        delete (window as unknown as { opener?: unknown }).opener;
+      }
+      parentChannel.close();
+    }
+  });
+
+  it("disables line jump when disconnected and still warns on unresolved assets", async () => {
+    const parentChannel = new MockBroadcastChannel(PREVIEW_SYNC_CHANNEL_NAME);
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    render(<PopoutPreview sessionId="sess-disc" />);
+
+    act(() => {
+      parentChannel.postMessage({
+        type: "sync-state",
+        sessionId: "sess-disc",
+        documentId: "doc_disc",
+        markdown: '---\ntitle: "提案書"\n---\n\n![図](asset:missing_img)\n\nTODO: 追記',
+        exportBasename: "20261128_提案書",
+        prefs: {
+          autoUpdate: true,
+          showMarginGuides: false,
+          layoutMode: "single",
+          skipPrintHeaderFooterNotice: true,
+          enablePreflightCheck: true,
+          preflightNgWords: "",
+        },
+        assetsVersion: 1,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("popout-doc-id").textContent).toBe("doc_disc");
+    });
+
+    act(() => {
+      parentChannel.postMessage({
+        type: "parent-disconnected",
+        sessionId: "sess-disc",
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "印刷" }));
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(screen.getByText(/未解決の画像があります（1件）/)).toBeTruthy();
+    expect(
+      screen.getByText("※ メイン画面と未接続のため、行ジャンプは利用できません。")
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /未記入・仮表現「TODO」/ })
+    ).toBeNull();
+
+    parentChannel.close();
+  });
+
+  it("waits for in-flight IndexedDB asset loading before evaluating unresolved assets on print", async () => {
+    const parentChannel = new MockBroadcastChannel(PREVIEW_SYNC_CHANNEL_NAME);
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    let resolveAssets!: (val: Record<string, string>) => void;
+    mockLoadMergedAssetsForDoc.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAssets = resolve;
+        })
+    );
+
+    render(<PopoutPreview sessionId="sess-inflight" />);
+
+    act(() => {
+      parentChannel.postMessage({
+        type: "sync-state",
+        sessionId: "sess-inflight",
+        documentId: "doc_inflight",
+        markdown: '---\ntitle: "画像付き文書"\n---\n\n![図](asset:img_ok)',
+        exportBasename: "20261128_画像付き文書",
+        prefs: {
+          autoUpdate: true,
+          showMarginGuides: false,
+          layoutMode: "single",
+          skipPrintHeaderFooterNotice: true,
+          enablePreflightCheck: false,
+          preflightNgWords: "",
+        },
+        assetsVersion: 1,
+      });
+    });
+
+    // IndexedDB 読込完了前に印刷ボタンをクリック
+    fireEvent.click(screen.getByRole("button", { name: "印刷" }));
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText(/未解決の画像があります/)).toBeNull();
+
+    // 読込完了後、画像が解決済みなので誤検知モーダルを出さずそのまま印刷される
+    await act(async () => {
+      resolveAssets({ "asset:img_ok": "data:image/png;base64,OK" });
+    });
+
+    await waitFor(() => {
+      expect(printSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByText(/未解決の画像があります/)).toBeNull();
+
+    parentChannel.close();
   });
 });
