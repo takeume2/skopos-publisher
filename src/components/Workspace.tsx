@@ -32,6 +32,7 @@ import {
 } from "@/lib/unresolved-assets";
 import type { PreflightReport } from "@/lib/preflight";
 import {
+  buildParentWindowName,
   buildPreviewPopoutUrl,
   createPreviewSyncChannel,
   getOrCreatePreviewSessionId,
@@ -153,6 +154,7 @@ export function Workspace() {
   const previousViewModeRef = useRef<ViewMode>("split");
   const popupWindowRef = useRef<Window | null>(null);
   const previewSessionIdRef = useRef<string | null>(null);
+  const parentWindowNameRef = useRef<string>("");
   const syncChannelRef = useRef<BroadcastChannel | null>(null);
   const assetsVersionRef = useRef<number>(0);
   const lastAssetsRef = useRef<Record<string, string>>(assets);
@@ -306,6 +308,9 @@ export function Workspace() {
       exportBasename: latest.exportBasename,
       prefs: latest.prefs,
       assetsVersion: assetsVersionRef.current,
+      ...(parentWindowNameRef.current
+        ? { parentWindowName: parentWindowNameRef.current }
+        : {}),
     });
   }, [postPreviewMessage]);
 
@@ -314,6 +319,15 @@ export function Workspace() {
 
     const sessionId = getOrCreatePreviewSessionId();
     previewSessionIdRef.current = sessionId;
+    const defaultParentName = buildParentWindowName(sessionId);
+    if (typeof window !== "undefined") {
+      if (!window.name || window.name.startsWith("skopos_editor_")) {
+        window.name = defaultParentName;
+      }
+      parentWindowNameRef.current = window.name || defaultParentName;
+    } else {
+      parentWindowNameRef.current = defaultParentName;
+    }
 
     const channel = createPreviewSyncChannel();
     syncChannelRef.current = channel;
@@ -375,7 +389,7 @@ export function Workspace() {
       if (msg.type === "jump-to-line") {
         const requestId = ++jumpRequestSeqRef.current;
         setCursorLine(msg.line);
-        setJumpRequest({ line: msg.line, requestId });
+        setJumpRequest({ line: msg.line, requestId, align: "center" });
         window.focus?.();
       }
     };
@@ -967,7 +981,7 @@ export function Workspace() {
       closeModal();
       const requestId = ++jumpRequestSeqRef.current;
       setCursorLine(line);
-      setJumpRequest({ line, requestId });
+      setJumpRequest({ line, requestId, align: "center" });
       if (!isPreviewPoppedOut && viewMode === "preview") {
         setViewMode("split");
       }

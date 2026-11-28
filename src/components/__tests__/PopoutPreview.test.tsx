@@ -353,12 +353,17 @@ describe("PopoutPreview (/preview) sync, reconnect, race safety, and print (#64)
     });
 
     const openerFocus = vi.fn();
+    const namedParentFocus = vi.fn();
     const originalOpener = Object.getOwnPropertyDescriptor(window, "opener");
     Object.defineProperty(window, "opener", {
       configurable: true,
       value: { closed: false, focus: openerFocus },
     });
 
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue({ focus: namedParentFocus } as unknown as Window);
+    const closeSpy = vi.spyOn(window, "close").mockImplementation(() => {});
     const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
 
     try {
@@ -369,6 +374,7 @@ describe("PopoutPreview (/preview) sync, reconnect, race safety, and print (#64)
           type: "sync-state",
           sessionId: "sess-preflight",
           documentId: "doc_pf",
+          parentWindowName: "skopos_editor_sess-preflight",
           markdown: [
             "---",
             'title: "提案書"',
@@ -404,7 +410,7 @@ describe("PopoutPreview (/preview) sync, reconnect, race safety, and print (#64)
       expect(screen.getByText(/NG ワード「社外秘コード」が含まれています。/)).toBeTruthy();
       expect(screen.getByText("「ヘッダーとフッター」をオフ")).toBeTruthy();
 
-      // 指摘行クリックで jump-to-line を親へ送信し window.opener.focus() を呼ぶ
+      // 指摘行クリックで jump-to-line 送信＋opener.focus()＋window.open("", parentWindowName)試行＋移動トースト表示
       parentReceived.length = 0;
       fireEvent.click(screen.getByText(/NG ワード「社外秘コード」が含まれています。/));
       expect(parentReceived).toContainEqual({
@@ -413,10 +419,15 @@ describe("PopoutPreview (/preview) sync, reconnect, race safety, and print (#64)
         line: 8,
       });
       expect(openerFocus).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledWith("", "skopos_editor_sess-preflight");
+      expect(namedParentFocus).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("status").textContent).toContain("メイン画面のエディタ");
+      expect(screen.getByRole("status").textContent).toContain("L8");
 
-      // 再度印刷 → 「次回から非表示」チェック付きで「このまま出力」
+      // 再度印刷 → トーストが消え、「次回から非表示」チェック付きで「このまま出力」
       parentReceived.length = 0;
       fireEvent.click(screen.getByRole("button", { name: "印刷" }));
+      expect(screen.queryByRole("status")).toBeNull();
       fireEvent.click(
         screen.getByRole("checkbox", {
           name: "次回からこの注意喚起を表示しない",
@@ -442,6 +453,26 @@ describe("PopoutPreview (/preview) sync, reconnect, race safety, and print (#64)
         sessionId: "sess-preflight",
         patch: { skipPrintHeaderFooterNotice: true },
       });
+
+      // opener 不在時は window.open("", parentWindowName) を呼ばない（空ウィンドウ防止）＋トーストの「戻る」で閉じる
+      openSpy.mockClear();
+      Object.defineProperty(window, "opener", {
+        configurable: true,
+        value: null,
+      });
+      fireEvent.click(screen.getByRole("button", { name: "印刷" }));
+      fireEvent.click(screen.getByText(/NG ワード「社外秘コード」が含まれています。/));
+      expect(openSpy).not.toHaveBeenCalled();
+
+      parentReceived.length = 0;
+      fireEvent.click(
+        screen.getByRole("button", { name: "プレビューを閉じてエディタへ戻る" })
+      );
+      expect(parentReceived).toContainEqual({
+        type: "preview-closed",
+        sessionId: "sess-preflight",
+      });
+      expect(closeSpy).toHaveBeenCalledTimes(1);
     } finally {
       if (originalOpener) {
         Object.defineProperty(window, "opener", originalOpener);

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { clear, set } from "idb-keyval";
 import {
+  buildParentWindowName,
   buildPreviewPopoutUrl,
   getOrCreatePreviewSessionId,
   parsePreviewSyncMessage,
@@ -26,6 +27,7 @@ describe("preview-sync utilities (#64)", () => {
     expect(second).toBe(first);
 
     expect(buildPreviewPopoutUrl("abc/123")).toBe("/preview?session=abc%2F123");
+    expect(buildParentWindowName("sess-1")).toBe("skopos_editor_sess-1");
   });
 
   it("falls back cleanly if sessionStorage throws", () => {
@@ -82,9 +84,10 @@ describe("preview-sync utilities (#64)", () => {
       patch: { layoutMode: "spread" },
     });
 
-    // 拡張された印刷・プリフライト設定と jump-to-line メッセージの検証
+    // 拡張された印刷・プリフライト設定と parentWindowName・jump-to-line メッセージの検証
     const validSyncWithPrintPrefs = {
       ...validSync,
+      parentWindowName: "skopos_editor_sess-1",
       prefs: {
         ...validSync.prefs,
         skipPrintHeaderFooterNotice: true,
@@ -95,6 +98,15 @@ describe("preview-sync utilities (#64)", () => {
     expect(parsePreviewSyncMessage(validSyncWithPrintPrefs, "sess-1")).toEqual(
       validSyncWithPrintPrefs
     );
+    expect(
+      parsePreviewSyncMessage(
+        {
+          ...validSync,
+          parentWindowName: 123,
+        },
+        "sess-1"
+      )
+    ).toBeNull();
     expect(
       parsePreviewSyncMessage(
         {

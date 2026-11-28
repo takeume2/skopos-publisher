@@ -429,6 +429,26 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
       head: 19,
     });
     expect(onCursorLineChange).toHaveBeenCalledWith(4);
+
+    // align: "center" 指定時（プリフライトジャンプ等）は中央寄せでスクロールする
+    mockDispatch.mockClear();
+    rerender(
+      <EditorPane
+        value={mockDocLines.join("\n")}
+        onChange={vi.fn()}
+        jumpRequest={{ line: 2, requestId: 3, align: "center" }}
+        onCursorLineChange={onCursorLineChange}
+      />
+    );
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch.mock.calls[0][0]).toEqual({
+      selection: { anchor: 6, head: 6 },
+      effects: {
+        __mock: "scrollIntoView",
+        pos: 6,
+        opts: { y: "center" },
+      },
+    });
   });
 
   it("shows a notice and skips insertion when onUploadImage rejects with a size limit error (#16)", async () => {

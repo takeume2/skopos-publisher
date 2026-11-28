@@ -88,11 +88,12 @@ vi.mock("@/hooks/useIndexedDbStorage", async () => {
 
 vi.mock("@/components/EditorPane", () => ({
   EditorPane: (props: {
-    jumpRequest?: { line: number; requestId: number } | null;
+    jumpRequest?: { line: number; requestId: number; align?: "start" | "center" } | null;
   }) => (
     <div
       data-testid="parent-editor"
       data-jump-line={props.jumpRequest?.line ?? ""}
+      data-jump-align={props.jumpRequest?.align ?? ""}
     />
   ),
 }));
@@ -190,7 +191,14 @@ describe("Workspace + PopoutPreview paired BroadcastChannel integration (#64)", 
         mockPopup.closed = true;
       }),
     };
-    vi.spyOn(window, "open").mockReturnValue(mockPopup as unknown as Window);
+    const namedParentFocusSpy = vi.fn();
+    window.name = "";
+    const openSpy = vi.spyOn(window, "open").mockImplementation((url) => {
+      if (url === "") {
+        return { focus: namedParentFocusSpy } as unknown as Window;
+      }
+      return mockPopup as unknown as Window;
+    });
     const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
     const windowFocusSpy = vi.spyOn(window, "focus").mockImplementation(() => {});
 
@@ -250,7 +258,7 @@ describe("Workspace + PopoutPreview paired BroadcastChannel integration (#64)", 
         childScope.getByText(/NG ワード「極秘プロジェクト」が含まれています。/)
       ).toBeTruthy();
 
-      // 4. 指摘行をクリック → メイン画面の EditorPane へ L6 ジャンプが届き、分離状態は維持される
+      // 4. 指摘行をクリック → メイン画面の EditorPane へ L6 (align=center) ジャンプが届き、子側に移動トースト表示・分離状態は維持される
       fireEvent.click(
         childScope.getByText(/NG ワード「極秘プロジェクト」が含まれています。/)
       );
@@ -258,13 +266,23 @@ describe("Workspace + PopoutPreview paired BroadcastChannel integration (#64)", 
         expect(
           parentScope.getByTestId("parent-editor").getAttribute("data-jump-line")
         ).toBe("6");
+        expect(
+          parentScope.getByTestId("parent-editor").getAttribute("data-jump-align")
+        ).toBe("center");
       });
       expect(openerFocusSpy).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledWith("", `skopos_editor_${sessionId}`);
+      expect(namedParentFocusSpy).toHaveBeenCalledTimes(1);
       expect(windowFocusSpy).toHaveBeenCalled();
       expect(parentScope.getByText("別ウィンドウ表示中")).toBeTruthy();
+      expect(childScope.getByRole("status").textContent).toContain("L6");
+      expect(
+        childScope.getByRole("button", { name: "プレビューを閉じてエディタへ戻る" })
+      ).toBeTruthy();
 
-      // 5. 再度別ウィンドウで「印刷」→「次回からこの注意喚起を表示しない」チェック付きで「このまま出力」
+      // 5. 再度別ウィンドウで「印刷」→ トーストが消え、「次回からこの注意喚起を表示しない」チェック付きで「このまま出力」
       fireEvent.click(childScope.getByRole("button", { name: "印刷" }));
+      expect(childScope.queryByRole("status")).toBeNull();
       fireEvent.click(
         childScope.getByRole("checkbox", {
           name: "次回からこの注意喚起を表示しない",

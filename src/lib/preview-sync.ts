@@ -21,6 +21,7 @@ export type PreviewSyncMessage =
       exportBasename: string;
       prefs: SyncedPreviewPrefs;
       assetsVersion: number;
+      parentWindowName?: string;
     }
   | {
       type: "assets-updated";
@@ -101,6 +102,10 @@ export function buildPreviewPopoutUrl(sessionId: string): string {
   return `/preview?session=${encodeURIComponent(sessionId)}`;
 }
 
+export function buildParentWindowName(sessionId: string): string {
+  return `skopos_editor_${sessionId}`;
+}
+
 export function createPreviewSyncChannel(): BroadcastChannel | null {
   if (typeof BroadcastChannel !== "function") {
     return null;
@@ -167,7 +172,9 @@ export function parsePreviewSyncMessage(
         typeof msg.markdown === "string" &&
         typeof msg.exportBasename === "string" &&
         typeof msg.assetsVersion === "number" &&
-        isSyncedPreviewPrefs(msg.prefs)
+        isSyncedPreviewPrefs(msg.prefs) &&
+        (msg.parentWindowName === undefined ||
+          typeof msg.parentWindowName === "string")
       ) {
         return {
           type: "sync-state",
@@ -177,6 +184,9 @@ export function parsePreviewSyncMessage(
           exportBasename: msg.exportBasename,
           prefs: msg.prefs,
           assetsVersion: msg.assetsVersion,
+          ...(typeof msg.parentWindowName === "string"
+            ? { parentWindowName: msg.parentWindowName }
+            : {}),
         };
       }
       return null;

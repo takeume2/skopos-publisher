@@ -8,7 +8,14 @@ import React, {
   useState,
 } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, PanelRightClose, Printer, WifiOff } from "lucide-react";
+import {
+  CheckCircle2,
+  Loader2,
+  PanelRightClose,
+  Printer,
+  WifiOff,
+  X,
+} from "lucide-react";
 import { loadMergedAssetsForDoc } from "@/hooks/useIndexedDbStorage";
 import { parseMarkdownDocument } from "@/lib/frontmatter";
 import type { PreflightReport } from "@/lib/preflight";
@@ -40,6 +47,7 @@ interface SyncedDocState {
   markdown: string;
   exportBasename: string;
   prefs: ResolvedSyncedPrefs;
+  parentWindowName?: string;
 }
 
 type PopoutModalState =
@@ -67,6 +75,7 @@ const DEFAULT_SYNCED_PREFS: ResolvedSyncedPrefs = {
 };
 
 const RECONNECT_PING_INTERVAL_MS = 1500;
+const JUMP_NOTICE_DURATION_MS = 6000;
 
 function resolveSyncedPrefs(prefs: SyncedPreviewPrefs): ResolvedSyncedPrefs {
   return {
@@ -101,10 +110,12 @@ export function PopoutPreview({
   const [modalState, setModalState] = useState<PopoutModalState>(null);
   const [skipPrintNoticeNextTime, setSkipPrintNoticeNextTime] =
     useState<boolean>(false);
+  const [jumpNoticeLine, setJumpNoticeLine] = useState<number | null>(null);
 
   const channelRef = useRef<BroadcastChannel | null>(null);
   const previewPaneRef = useRef<PagedPreviewPaneHandle>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const jumpNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const assetLoadSeqRef = useRef<number>(0);
   const lastLoadedAssetKeyRef = useRef<string>("");
   const pendingAssetLoadRef = useRef<Promise<void> | null>(null);
@@ -121,7 +132,30 @@ export function PopoutPreview({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (jumpNoticeTimerRef.current) {
+        clearTimeout(jumpNoticeTimerRef.current);
+        jumpNoticeTimerRef.current = null;
+      }
     };
+  }, []);
+
+  const clearJumpNotice = useCallback(() => {
+    if (jumpNoticeTimerRef.current) {
+      clearTimeout(jumpNoticeTimerRef.current);
+      jumpNoticeTimerRef.current = null;
+    }
+    setJumpNoticeLine(null);
+  }, []);
+
+  const showJumpNotice = useCallback((line: number) => {
+    if (jumpNoticeTimerRef.current) {
+      clearTimeout(jumpNoticeTimerRef.current);
+    }
+    setJumpNoticeLine(line);
+    jumpNoticeTimerRef.current = setTimeout(() => {
+      setJumpNoticeLine(null);
+      jumpNoticeTimerRef.current = null;
+    }, JUMP_NOTICE_DURATION_MS);
   }, []);
 
   const closeDialogSync = useCallback(() => {
@@ -283,6 +317,7 @@ export function PopoutPreview({
           markdown: msg.markdown,
           exportBasename: msg.exportBasename,
           prefs: resolveSyncedPrefs(msg.prefs),
+          parentWindowName: msg.parentWindowName,
         };
         latestDocStateRef.current = nextDocState;
         setDocState(nextDocState);
@@ -448,6 +483,7 @@ export function PopoutPreview({
 
   const handlePrint = useCallback(() => {
     if (isPreparingPrintRef.current) return;
+    clearJumpNotice();
 
     if (pendingAssetLoadRef.current) {
       isPreparingPrintRef.current = true;
@@ -470,7 +506,7 @@ export function PopoutPreview({
     }
 
     evaluateAndProceedPrint();
-  }, [evaluateAndProceedPrint]);
+  }, [clearJumpNotice, evaluateAndProceedPrint]);
 
   const handleJumpToPreflightLine = useCallback(
     (line: number) => {
@@ -478,21 +514,28 @@ export function PopoutPreview({
       if (sessionId) {
         postMessageSafely({ type: "jump-to-line", sessionId, line });
       }
+      const parentWindowName = latestDocStateRef.current?.parentWindowName;
       try {
         if (window.opener && !window.opener.closed) {
           window.opener.focus?.();
+          if (parentWindowName) {
+            const namedParent = window.open("", parentWindowName);
+            namedParent?.focus?.();
+          }
         }
       } catch {
         // Ignore cross-window focus restriction errors
       }
+      showJumpNotice(line);
     },
-    [closeModal, postMessageSafely, sessionId]
+    [closeModal, postMessageSafely, sessionId, showJumpNotice]
   );
 
   const handleDockBack = useCallback(() => {
+    clearJumpNotice();
     notifyClosedOnce();
     window.close();
-  }, [notifyClosedOnce]);
+  }, [clearJumpNotice, notifyClosedOnce]);
 
   if (connectionState === "unsupported") {
     return (
@@ -546,6 +589,43 @@ export function PopoutPreview({
           >
             閉じる
           </button>
+        </div>
+      )}
+
+      {connectionState === "connected" && jumpNoticeLine !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="no-print flex items-center justify-between gap-2 border-b border-sky-500/40 bg-sky-950/90 px-3 py-1.5 text-[11px] text-sky-100"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+            <span className="truncate">
+              メイン画面のエディタ{" "}
+              <strong className="font-mono tabular-nums text-white">
+                L{jumpNoticeLine}
+              </strong>{" "}
+              へ移動しました
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleDockBack}
+              className="rounded border border-sky-400/50 bg-sky-700/80 px-2 py-0.5 text-[10px] font-semibold text-white transition hover:bg-sky-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+            >
+              プレビューを閉じてエディタへ戻る
+            </button>
+            <button
+              type="button"
+              onClick={clearJumpNotice}
+              aria-label="移動通知を閉じる"
+              title="閉じる"
+              className="rounded p-0.5 text-sky-300 transition hover:bg-sky-900/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
