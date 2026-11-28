@@ -623,7 +623,7 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
     ].join("\n");
     const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
 
-    render(<Workspace />);
+    const { container } = render(<Workspace />);
 
     // プリフライト警告があるためモーダルが開き、サマリーと2件の検出が表示される
     fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
@@ -643,10 +643,21 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
       screen.queryByText("出力前プリフライトチェック（2件の確認事項）")
     ).toBeNull();
 
-    // 再度押下し「このまま出力」で印刷へ進める
+    // 再度押下し「このまま出力」で印刷へ進める（window.print() 瞬間に dialog は閉じている）
+    let dialogOpenDuringPrint: boolean | null = null;
+    let dialogHasOpenAttrDuringPrint: boolean | null = null;
+    printSpy.mockImplementation(() => {
+      const dialogEl = container.querySelector("dialog");
+      dialogOpenDuringPrint = dialogEl ? dialogEl.open : null;
+      dialogHasOpenAttrDuringPrint = dialogEl
+        ? dialogEl.hasAttribute("open")
+        : null;
+    });
     fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
     fireEvent.click(screen.getByRole("button", { name: "このまま出力" }));
     expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(dialogOpenDuringPrint).toBe(false);
+    expect(dialogHasOpenAttrDuringPrint).toBe(false);
 
     // 設定ドロワーでプリフライトをオフにするとそのまま即印刷される
     fireEvent.click(

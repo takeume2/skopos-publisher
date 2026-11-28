@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink } from "lucide-react";
 import {
   DocumentSummary,
   SharedAssetSummary,
@@ -29,11 +30,16 @@ import {
   matchDroppedFilesToUnresolvedAssets,
   type UnresolvedAssetRef,
 } from "@/lib/unresolved-assets";
+import type { PreflightReport } from "@/lib/preflight";
 import {
-  runPreflightCheck,
-  type PreflightCategory,
-  type PreflightReport,
-} from "@/lib/preflight";
+  buildParentWindowName,
+  buildPreviewPopoutUrl,
+  createPreviewSyncChannel,
+  getOrCreatePreviewSessionId,
+  parsePreviewSyncMessage,
+  type PreviewSyncMessage,
+  type SyncedPreviewPrefs,
+} from "@/lib/preview-sync";
 import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
 import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
@@ -42,6 +48,10 @@ import {
   PagedPreviewPane,
   type PagedPreviewPaneHandle,
 } from "./PagedPreviewPane";
+import {
+  evaluatePrintConfirm,
+  PrintConfirmDialogContent,
+} from "./PrintConfirmDialogContent";
 import { TopToolbar, ViewMode } from "./TopToolbar";
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
@@ -70,13 +80,6 @@ type ModalState =
   | null;
 
 const BULK_ASSET_RESTORE_CONCURRENCY = 4;
-
-const PREFLIGHT_CATEGORY_LABELS: Record<PreflightCategory, string> = {
-  incomplete: "未記入",
-  "unresolved-asset": "画像",
-  metadata: "メタ情報",
-  "ng-word": "NGワード",
-};
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -136,6 +139,7 @@ export function Workspace() {
   const [isPreparingPrint, setIsPreparingPrint] = useState<boolean>(false);
   const [skipPrintNoticeNextTime, setSkipPrintNoticeNextTime] =
     useState<boolean>(false);
+  const [isPreviewPoppedOut, setIsPreviewPoppedOut] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -147,8 +151,17 @@ export function Workspace() {
   const isMountedRef = useRef<boolean>(true);
   const jumpRequestSeqRef = useRef<number>(0);
   const restoreNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousViewModeRef = useRef<ViewMode>("split");
+  const popupWindowRef = useRef<Window | null>(null);
+  const previewSessionIdRef = useRef<string | null>(null);
+  const parentWindowNameRef = useRef<string>("");
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const assetsVersionRef = useRef<number>(0);
+  const lastAssetsRef = useRef<Record<string, string>>(assets);
+  const isPreviewPoppedOutRef = useRef<boolean>(isPreviewPoppedOut);
+  isPreviewPoppedOutRef.current = isPreviewPoppedOut;
 
-  const isPreviewHidden = viewMode === "editor";
+  const isPreviewHidden = viewMode === "editor" || isPreviewPoppedOut;
   const isPreviewHiddenRef = useRef<boolean>(isPreviewHidden);
   isPreviewHiddenRef.current = isPreviewHidden;
 
@@ -240,6 +253,271 @@ export function Workspace() {
   const printTitleRef = useRef<string>(exportBasename);
   printTitleRef.current = exportBasename;
 
+  const latestSyncPayloadRef = useRef<{
+    documentId: string;
+    markdown: string;
+    exportBasename: string;
+    prefs: SyncedPreviewPrefs;
+  }>({
+    documentId: activeDocId,
+    markdown,
+    exportBasename,
+    prefs: {
+      autoUpdate: prefs.autoUpdate,
+      showMarginGuides: prefs.showMarginGuides,
+      layoutMode: prefs.layoutMode,
+      skipPrintHeaderFooterNotice: prefs.skipPrintHeaderFooterNotice,
+      enablePreflightCheck: prefs.enablePreflightCheck,
+      preflightNgWords: prefs.preflightNgWords,
+    },
+  });
+  latestSyncPayloadRef.current = {
+    documentId: activeDocId,
+    markdown,
+    exportBasename,
+    prefs: {
+      autoUpdate: prefs.autoUpdate,
+      showMarginGuides: prefs.showMarginGuides,
+      layoutMode: prefs.layoutMode,
+      skipPrintHeaderFooterNotice: prefs.skipPrintHeaderFooterNotice,
+      enablePreflightCheck: prefs.enablePreflightCheck,
+      preflightNgWords: prefs.preflightNgWords,
+    },
+  };
+
+  const updatePrefsRef = useRef(updatePrefs);
+  updatePrefsRef.current = updatePrefs;
+
+  const postPreviewMessage = useCallback((message: PreviewSyncMessage) => {
+    try {
+      syncChannelRef.current?.postMessage(message);
+    } catch {
+      // Ignore BroadcastChannel posting errors if already closed
+    }
+  }, []);
+
+  const postCurrentSyncState = useCallback(() => {
+    const sessionId = previewSessionIdRef.current;
+    if (!sessionId) return;
+    const latest = latestSyncPayloadRef.current;
+    postPreviewMessage({
+      type: "sync-state",
+      sessionId,
+      documentId: latest.documentId,
+      markdown: latest.markdown,
+      exportBasename: latest.exportBasename,
+      prefs: latest.prefs,
+      assetsVersion: assetsVersionRef.current,
+      ...(parentWindowNameRef.current
+        ? { parentWindowName: parentWindowNameRef.current }
+        : {}),
+    });
+  }, [postPreviewMessage]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const sessionId = getOrCreatePreviewSessionId();
+    previewSessionIdRef.current = sessionId;
+    const defaultParentName = buildParentWindowName(sessionId);
+    if (typeof window !== "undefined") {
+      if (!window.name || window.name.startsWith("skopos_editor_")) {
+        window.name = defaultParentName;
+      }
+      parentWindowNameRef.current = window.name || defaultParentName;
+    } else {
+      parentWindowNameRef.current = defaultParentName;
+    }
+
+    const channel = createPreviewSyncChannel();
+    syncChannelRef.current = channel;
+
+    const handleChannelMessage = (event: MessageEvent) => {
+      const msg = parsePreviewSyncMessage(event.data, sessionId);
+      if (!msg) return;
+
+      if (msg.type === "preview-ready") {
+        setIsPreviewPoppedOut(true);
+        postCurrentSyncState();
+        return;
+      }
+
+      if (msg.type === "preview-closed") {
+        popupWindowRef.current = null;
+        if (isPreviewPoppedOutRef.current) {
+          setIsPreviewPoppedOut(false);
+          setViewMode(previousViewModeRef.current);
+        }
+        return;
+      }
+
+      if (msg.type === "update-prefs") {
+        const currentPrefs = latestSyncPayloadRef.current.prefs;
+        const diff: Partial<SyncedPreviewPrefs> = {};
+        if (
+          typeof msg.patch.autoUpdate === "boolean" &&
+          msg.patch.autoUpdate !== currentPrefs.autoUpdate
+        ) {
+          diff.autoUpdate = msg.patch.autoUpdate;
+        }
+        if (
+          typeof msg.patch.showMarginGuides === "boolean" &&
+          msg.patch.showMarginGuides !== currentPrefs.showMarginGuides
+        ) {
+          diff.showMarginGuides = msg.patch.showMarginGuides;
+        }
+        if (
+          msg.patch.layoutMode &&
+          msg.patch.layoutMode !== currentPrefs.layoutMode
+        ) {
+          diff.layoutMode = msg.patch.layoutMode;
+        }
+        if (
+          typeof msg.patch.skipPrintHeaderFooterNotice === "boolean" &&
+          msg.patch.skipPrintHeaderFooterNotice !==
+            currentPrefs.skipPrintHeaderFooterNotice
+        ) {
+          diff.skipPrintHeaderFooterNotice =
+            msg.patch.skipPrintHeaderFooterNotice;
+        }
+        if (Object.keys(diff).length > 0) {
+          void updatePrefsRef.current(diff);
+        }
+        return;
+      }
+
+      if (msg.type === "jump-to-line") {
+        const requestId = ++jumpRequestSeqRef.current;
+        setCursorLine(msg.line);
+        setJumpRequest({ line: msg.line, requestId, align: "center" });
+        window.focus?.();
+      }
+    };
+
+    channel?.addEventListener("message", handleChannelMessage);
+    postPreviewMessage({ type: "parent-hello", sessionId });
+
+    const notifyParentDisconnected = () => {
+      postPreviewMessage({ type: "parent-disconnected", sessionId });
+    };
+    window.addEventListener("pagehide", notifyParentDisconnected);
+    window.addEventListener("beforeunload", notifyParentDisconnected);
+
+    return () => {
+      window.removeEventListener("pagehide", notifyParentDisconnected);
+      window.removeEventListener("beforeunload", notifyParentDisconnected);
+      notifyParentDisconnected();
+      channel?.removeEventListener("message", handleChannelMessage);
+      channel?.close();
+      if (syncChannelRef.current === channel) {
+        syncChannelRef.current = null;
+      }
+    };
+  }, [isLoaded, postCurrentSyncState, postPreviewMessage]);
+
+  useEffect(() => {
+    if (!isPreviewPoppedOut) return;
+    postCurrentSyncState();
+  }, [
+    isPreviewPoppedOut,
+    activeDocId,
+    markdown,
+    exportBasename,
+    prefs.autoUpdate,
+    prefs.showMarginGuides,
+    prefs.layoutMode,
+    prefs.skipPrintHeaderFooterNotice,
+    prefs.enablePreflightCheck,
+    prefs.preflightNgWords,
+    postCurrentSyncState,
+  ]);
+
+  useEffect(() => {
+    if (lastAssetsRef.current === assets) return;
+    lastAssetsRef.current = assets;
+    assetsVersionRef.current += 1;
+    if (!isPreviewPoppedOut) return;
+    const sessionId = previewSessionIdRef.current;
+    if (!sessionId) return;
+    postPreviewMessage({
+      type: "assets-updated",
+      sessionId,
+      documentId: activeDocId,
+      assetsVersion: assetsVersionRef.current,
+    });
+  }, [activeDocId, assets, isPreviewPoppedOut, postPreviewMessage]);
+
+  useEffect(() => {
+    if (!isPreviewPoppedOut) return;
+    const timer = setInterval(() => {
+      const popup = popupWindowRef.current;
+      if (popup && popup.closed) {
+        popupWindowRef.current = null;
+        setIsPreviewPoppedOut(false);
+        setViewMode(previousViewModeRef.current);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isPreviewPoppedOut]);
+
+  const handleOpenPopoutPreview = useCallback(() => {
+    const existing = popupWindowRef.current;
+    if (existing && !existing.closed) {
+      existing.focus?.();
+      return;
+    }
+
+    const sessionId =
+      previewSessionIdRef.current ?? getOrCreatePreviewSessionId();
+    previewSessionIdRef.current = sessionId;
+    previousViewModeRef.current = viewMode;
+
+    const popup = window.open(
+      buildPreviewPopoutUrl(sessionId),
+      `skopos_preview_${sessionId}`,
+      "popup,width=900,height=1100,resizable=yes,scrollbars=yes"
+    );
+
+    if (!popup) {
+      setModalState({
+        kind: "notice",
+        title: "別ウィンドウを開けませんでした",
+        message:
+          "ブラウザによりポップアップがブロックされました。このサイトのポップアップ表示を許可してから再度お試しください。",
+      });
+      return;
+    }
+
+    popupWindowRef.current = popup;
+    setIsPreviewPoppedOut(true);
+    popup.focus?.();
+  }, [viewMode]);
+
+  const handleFocusPopoutPreview = useCallback(() => {
+    const popup = popupWindowRef.current;
+    if (popup && !popup.closed) {
+      popup.focus?.();
+    }
+    const sessionId = previewSessionIdRef.current;
+    if (sessionId) {
+      postPreviewMessage({ type: "focus-preview", sessionId });
+    }
+  }, [postPreviewMessage]);
+
+  const handleDockPopoutPreview = useCallback(() => {
+    const sessionId = previewSessionIdRef.current;
+    if (sessionId) {
+      postPreviewMessage({ type: "close-preview", sessionId });
+    }
+    const popup = popupWindowRef.current;
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+    popupWindowRef.current = null;
+    setIsPreviewPoppedOut(false);
+    setViewMode(previousViewModeRef.current);
+  }, [postPreviewMessage]);
+
   useEffect(() => {
     setImportedFilename(null);
     setCursorLine(1);
@@ -252,11 +530,11 @@ export function Workspace() {
       const requestId = ++jumpRequestSeqRef.current;
       setCursorLine(heading.line);
       setJumpRequest({ line: heading.line, requestId });
-      if (viewMode === "preview") {
+      if (!isPreviewPoppedOut && viewMode === "preview") {
         setViewMode("split");
       }
     },
-    [viewMode]
+    [isPreviewPoppedOut, viewMode]
   );
 
   const handleFrontmatterChange = useCallback(
@@ -668,25 +946,22 @@ export function Workspace() {
   }, [runWindowPrint]);
 
   const handlePrint = useCallback(() => {
-    const showHeaderFooterNotice = !prefs.skipPrintHeaderFooterNotice;
-    const preflightReport = prefs.enablePreflightCheck
-      ? runPreflightCheck(markdown, assets, {
-          ngWords: prefs.preflightNgWords,
-        })
-      : null;
-    const hasPreflightIssues = (preflightReport?.issues.length ?? 0) > 0;
+    const evaluation = evaluatePrintConfirm({
+      markdown,
+      assets,
+      unresolvedAssets,
+      enablePreflightCheck: prefs.enablePreflightCheck,
+      preflightNgWords: prefs.preflightNgWords,
+      skipPrintHeaderFooterNotice: prefs.skipPrintHeaderFooterNotice,
+    });
 
-    if (
-      unresolvedAssets.length > 0 ||
-      hasPreflightIssues ||
-      showHeaderFooterNotice
-    ) {
+    if (evaluation.shouldShowDialog) {
       setSkipPrintNoticeNextTime(false);
       setModalState({
         kind: "print-confirm",
-        unresolvedItems: unresolvedAssets,
-        preflightReport,
-        showHeaderFooterNotice,
+        unresolvedItems: evaluation.unresolvedItems,
+        preflightReport: evaluation.preflightReport,
+        showHeaderFooterNotice: evaluation.showHeaderFooterNotice,
       });
       return;
     }
@@ -706,12 +981,12 @@ export function Workspace() {
       closeModal();
       const requestId = ++jumpRequestSeqRef.current;
       setCursorLine(line);
-      setJumpRequest({ line, requestId });
-      if (viewMode === "preview") {
+      setJumpRequest({ line, requestId, align: "center" });
+      if (!isPreviewPoppedOut && viewMode === "preview") {
         setViewMode("split");
       }
     },
-    [closeModal, viewMode]
+    [closeModal, isPreviewPoppedOut, viewMode]
   );
 
   const startResize = useCallback(() => {
@@ -775,6 +1050,10 @@ export function Workspace() {
         saveStatus={saveStatus}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        isPreviewPoppedOut={isPreviewPoppedOut}
+        onOpenPopoutPreview={handleOpenPopoutPreview}
+        onFocusPopoutPreview={handleFocusPopoutPreview}
+        onDockPopoutPreview={handleDockPopoutPreview}
         onImportMarkdown={(content, filename) => {
           setImportedFilename(filename ?? null);
           setMarkdown(content);
@@ -842,11 +1121,14 @@ export function Workspace() {
           ref={containerRef}
           className="print-workspace-shell flex min-w-0 flex-1 overflow-hidden"
         >
-          {viewMode !== "preview" && (
+          {(viewMode !== "preview" || isPreviewPoppedOut) && (
             <div
               className="no-print min-h-0 overflow-hidden"
               style={{
-                width: viewMode === "split" ? `${splitPercent}%` : "100%",
+                width:
+                  viewMode === "split" && !isPreviewPoppedOut
+                    ? `${splitPercent}%`
+                    : "100%",
               }}
             >
               <EditorPane
@@ -859,7 +1141,7 @@ export function Workspace() {
             </div>
           )}
 
-          {viewMode === "split" && (
+          {viewMode === "split" && !isPreviewPoppedOut && (
             <div
               role="separator"
               tabIndex={0}
@@ -904,6 +1186,19 @@ export function Workspace() {
               restoreNotice={restoreNotice}
               onDismissRestoreNotice={() => setRestoreNotice(null)}
               assetRestoreNonce={assetRestoreNonce}
+              suspendAutoRender={isPreviewPoppedOut}
+              headerRightExtra={
+                <button
+                  type="button"
+                  onClick={handleOpenPopoutPreview}
+                  title="プレビューを別ウィンドウに分離"
+                  aria-label="プレビューを別ウィンドウに分離"
+                  className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 transition hover:border-sky-500/60 hover:bg-zinc-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  <span className="preview-cq-label">別ウィンドウ</span>
+                </button>
+              }
             />
           </div>
         </div>
@@ -1035,256 +1330,36 @@ export function Workspace() {
           </div>
         )}
 
-        {effectiveModal?.kind === "print-confirm" && (() => {
-          const preflightIssues = effectiveModal.preflightReport?.issues ?? [];
-          const summary = effectiveModal.preflightReport?.summary ?? null;
-          const hasWarnings =
-            effectiveModal.unresolvedItems.length > 0 ||
-            preflightIssues.length > 0;
-
-          return (
-            <div className="p-5">
-              {effectiveModal.unresolvedItems.length > 0 ? (
-                <h2
-                  id="mdpub-dialog-title"
-                  className="text-sm font-semibold text-amber-300"
-                >
-                  未解決の画像があります（{effectiveModal.unresolvedItems.length}件）
-                </h2>
-              ) : preflightIssues.length > 0 ? (
-                <h2
-                  id="mdpub-dialog-title"
-                  className="text-sm font-semibold text-amber-300"
-                >
-                  出力前プリフライトチェック（{preflightIssues.length}件の確認事項）
-                </h2>
-              ) : (
-                <h2
-                  id="mdpub-dialog-title"
-                  className="text-sm font-semibold text-sky-300"
-                >
-                  印刷前の確認（ヘッダー／フッター設定）
-                </h2>
-              )}
-
-              {summary && (
-                <div
-                  aria-label="出力設定サマリー"
-                  className="mt-2.5 flex flex-wrap items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-[10px] text-slate-300"
-                >
-                  <span className="rounded bg-slate-800 px-1.5 py-0.5">
-                    用紙: {summary.pageLabel}
-                  </span>
-                  <span className="rounded bg-slate-800 px-1.5 py-0.5">
-                    表紙: {summary.cover ? "あり" : "なし"}
-                  </span>
-                  <span
-                    className={`rounded px-1.5 py-0.5 ${
-                      summary.logoStatus === "missing"
-                        ? "bg-amber-950/80 text-amber-300"
-                        : "bg-slate-800"
-                    }`}
-                  >
-                    ロゴ:{" "}
-                    {summary.logoStatus === "configured"
-                      ? "あり"
-                      : summary.logoStatus === "missing"
-                        ? "未登録"
-                        : "なし"}
-                  </span>
-                  <span className="rounded bg-slate-800 px-1.5 py-0.5">
-                    透かし: {summary.confidentialLabel ?? "なし"}
-                  </span>
-                </div>
-              )}
-
-              {effectiveModal.unresolvedItems.length > 0 && (
-                <>
-                  <p className="mt-2 text-xs leading-relaxed text-slate-300">
-                    以下の画像は現在の文書に登録されていません。このまま出力すると、枠・アイコン・文字を消した空欄のまま箱の寸法を保って出力されます（プレビューと PDF のページ数は一致します）。
-                  </p>
-                  <ul className="mt-2.5 max-h-36 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2.5 font-mono text-[11px] text-amber-200">
-                    {effectiveModal.unresolvedItems.map((item) => (
-                      <li
-                        key={item.assetKey}
-                        className="flex items-center justify-between gap-2"
-                        title={item.assetKey}
-                      >
-                        <span className="min-w-0 truncate">{item.displayName}</span>
-                        {item.occurrences > 1 && (
-                          <span className="shrink-0 tabular-nums text-[10px] text-slate-400">
-                            ×{item.occurrences}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-
-              {preflightIssues.length > 0 && (
-                <div className="mt-3">
-                  {effectiveModal.unresolvedItems.length > 0 && (
-                    <p className="mb-1.5 text-xs font-semibold text-amber-300">
-                      プリフライトチェック（{preflightIssues.length}件）
-                    </p>
-                  )}
-                  <ul className="max-h-44 space-y-1.5 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2 text-[11px]">
-                    {preflightIssues.map((issue) => {
-                      const badgeLabel = PREFLIGHT_CATEGORY_LABELS[issue.category];
-                      const badgeTone =
-                        issue.category === "ng-word"
-                          ? "bg-red-950/80 text-red-300 border-red-800/60"
-                          : "bg-amber-950/80 text-amber-300 border-amber-800/60";
-                      const content = (
-                        <div className="flex w-full items-start gap-2 text-left">
-                          <span
-                            className={`mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-semibold ${badgeTone}`}
-                          >
-                            {badgeLabel}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-slate-100">{issue.message}</span>
-                              {typeof issue.line === "number" && (
-                                <span className="shrink-0 font-mono text-[10px] tabular-nums text-sky-400">
-                                  L{issue.line}
-                                </span>
-                              )}
-                            </div>
-                            {issue.snippet && (
-                              <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
-                                {issue.snippet}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      );
-
-                      return (
-                        <li key={issue.id}>
-                          {typeof issue.line === "number" ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleJumpToPreflightLine(issue.line!)
-                              }
-                              title={`L${issue.line} へ移動して修正する`}
-                              className="w-full rounded px-2 py-1.5 transition hover:bg-slate-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                            >
-                              {content}
-                            </button>
-                          ) : (
-                            <div className="px-2 py-1.5">{content}</div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <p className="mt-1 text-[10px] text-slate-400">
-                    ※ 項目をクリックするとエディタの該当行へ移動します。
-                  </p>
-                </div>
-              )}
-
-              {effectiveModal.showHeaderFooterNotice && (
-                <div
-                  className={
-                    hasWarnings
-                      ? "mt-3 rounded-md border border-sky-500/30 bg-sky-950/25 p-3"
-                      : "mt-2.5"
-                  }
-                >
-                  {hasWarnings && (
-                    <p className="text-xs font-semibold text-sky-300">
-                      ブラウザ印刷設定の確認
-                    </p>
-                  )}
-                  <p
-                    className={`${
-                      hasWarnings ? "mt-1" : ""
-                    } text-xs leading-relaxed text-slate-300`}
-                  >
-                    ブラウザ印刷の「ヘッダーとフッター」が有効なままだと、社内 URL や印刷日時が PDF の上下余白に印字される恐れがあります。
-                  </p>
-                  <ul className="mt-2.5 space-y-1.5 rounded-md border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] leading-relaxed text-slate-200">
-                    <li className="flex items-start gap-2">
-                      <span className="mt-0.5 text-amber-300" aria-hidden="true">
-                        •
-                      </span>
-                      <span>
-                        詳細設定 → オプションの{" "}
-                        <strong className="text-white">
-                          「ヘッダーとフッター」をオフ
-                        </strong>{" "}
-                        にしてください
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="mt-0.5 text-sky-400" aria-hidden="true">
-                        •
-                      </span>
-                      <span>
-                        <strong className="text-white">
-                          「背景のグラフィック」はオン
-                        </strong>{" "}
-                        を推奨（表紙・色帯の出力に必要）
-                      </span>
-                    </li>
-                  </ul>
-                  <label className="mt-3 flex cursor-pointer items-center gap-2 text-[11px] text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={skipPrintNoticeNextTime}
-                      onChange={(e) =>
-                        setSkipPrintNoticeNextTime(e.target.checked)
-                      }
-                      className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                    />
-                    <span>次回からこの注意喚起を表示しない</span>
-                  </label>
-                </div>
-              )}
-
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
-                >
-                  キャンセル
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (
-                      effectiveModal.showHeaderFooterNotice &&
-                      skipPrintNoticeNextTime
-                    ) {
-                      void updatePrefs({ skipPrintHeaderFooterNotice: true });
-                    }
-                    if (dialogRef.current?.open) {
-                      if (typeof dialogRef.current.close === "function") {
-                        dialogRef.current.close();
-                      } else {
-                        dialogRef.current.removeAttribute("open");
-                      }
-                    }
-                    setModalState(null);
-                    executePrint();
-                  }}
-                  className={`rounded-md px-3.5 py-1.5 text-xs font-semibold text-white transition ${
-                    hasWarnings
-                      ? "bg-amber-600 hover:bg-amber-500"
-                      : "bg-sky-600 hover:bg-sky-500"
-                  }`}
-                >
-                  {hasWarnings ? "このまま出力" : "印刷ダイアログを開く"}
-                </button>
-              </div>
-            </div>
-          );
-        })()}
+        {effectiveModal?.kind === "print-confirm" && (
+          <PrintConfirmDialogContent
+            unresolvedItems={effectiveModal.unresolvedItems}
+            preflightReport={effectiveModal.preflightReport}
+            showHeaderFooterNotice={effectiveModal.showHeaderFooterNotice}
+            skipPrintNoticeNextTime={skipPrintNoticeNextTime}
+            onChangeSkipPrintNoticeNextTime={setSkipPrintNoticeNextTime}
+            onJumpToLine={handleJumpToPreflightLine}
+            onCancel={closeModal}
+            onConfirm={() => {
+              if (
+                effectiveModal.showHeaderFooterNotice &&
+                skipPrintNoticeNextTime
+              ) {
+                void updatePrefs({ skipPrintHeaderFooterNotice: true });
+              }
+              const dialogEl = dialogRef.current;
+              if (dialogEl) {
+                if (typeof dialogEl.close === "function" && dialogEl.open) {
+                  dialogEl.close();
+                }
+                if (dialogEl.hasAttribute("open")) {
+                  dialogEl.removeAttribute("open");
+                }
+              }
+              setModalState(null);
+              executePrint();
+            }}
+          />
+        )}
 
         {effectiveModal?.kind === "reset-sample" && (
           <div className="p-5">

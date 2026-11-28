@@ -55,4 +55,53 @@ describe("TopToolbar accessibility & motion preferences", () => {
     renderToolbar();
     expect(screen.queryByRole("button", { name: /サンプル/ })).toBeNull();
   });
+
+  it("replaces view-mode buttons with popout controls while preview is popped out, and exposes popout icon button otherwise (#64)", () => {
+    const onOpenPopoutPreview = vi.fn();
+    const onFocusPopoutPreview = vi.fn();
+    const onDockPopoutPreview = vi.fn();
+
+    const { rerender } = renderToolbar({
+      viewMode: "editor",
+      isPreviewPoppedOut: false,
+      onOpenPopoutPreview,
+      onFocusPopoutPreview,
+      onDockPopoutPreview,
+    });
+
+    expect(screen.getByRole("group", { name: "表示モード切替" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "プレビューを別ウィンドウで開く" })
+    ).toBeTruthy();
+    expect(screen.queryByText("別ウィンドウ表示中")).toBeNull();
+
+    rerender(
+      <TopToolbar
+        title="サンプル文書"
+        saveStatus="saved"
+        viewMode="editor"
+        onViewModeChange={vi.fn()}
+        isPreviewPoppedOut={true}
+        onOpenPopoutPreview={onOpenPopoutPreview}
+        onFocusPopoutPreview={onFocusPopoutPreview}
+        onDockPopoutPreview={onDockPopoutPreview}
+        onImportMarkdown={vi.fn()}
+        onImportFolder={vi.fn()}
+        onExportMarkdown={vi.fn()}
+        onPrint={vi.fn()}
+        isSidebarOpen={true}
+        onToggleSidebar={vi.fn()}
+        isSettingsOpen={false}
+        onToggleSettings={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole("group", { name: "表示モード切替" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "プレビューを別ウィンドウで開く" })
+    ).toBeNull();
+    expect(screen.getByText("別ウィンドウ表示中")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "前面へ" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "メインに戻す" })).toBeTruthy();
+  });
 });

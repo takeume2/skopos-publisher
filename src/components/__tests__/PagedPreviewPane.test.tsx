@@ -698,4 +698,76 @@ describe("PagedPreviewPane double buffering & scroll preservation", () => {
       "更新後の本文"
     );
   });
+
+  it("suspends background renders while popped out, still allows explicit renderNow(), and flushes stale edits on resume (#64)", async () => {
+    const handleRef = React.createRef<PagedPreviewPaneHandle>();
+    const { container, rerender } = renderPane({
+      ref: handleRef,
+      documentId: "doc-1",
+      markdown: "# 初期",
+      autoUpdate: true,
+      suspendAutoRender: true,
+      headerRightExtra: <button type="button">別ウィンドウ</button>,
+    });
+
+    // headerRightExtra スロットが表示され、suspendAutoRender 中は自動描画が走らないこと
+    expect(screen.getByRole("button", { name: "別ウィンドウ" })).toBeTruthy();
+    expect(previewQueue.length).toBe(0);
+
+    // 明示的な renderNow()（親ウィンドウからの印刷時）は suspend 中でも実行できること
+    const printRenderPromise = handleRef.current!.renderNow();
+    await waitFor(() => expect(previewQueue.length).toBe(1));
+    await act(async () => {
+      previewQueue[0].resolve([{ id: "page-1", bodyText: "初期印刷用" }]);
+    });
+    await expect(printRenderPromise).resolves.toEqual({ ok: true });
+
+    // suspend 中に本文変更しても自動描画は走らない
+    rerender(
+      <PagedPreviewPane
+        ref={handleRef}
+        documentId="doc-1"
+        markdown="# 別ウィンドウ編集中に更新"
+        frontmatter={DEFAULT_FRONTMATTER}
+        assets={{}}
+        autoUpdate={true}
+        onToggleAutoUpdate={vi.fn()}
+        showMarginGuides={false}
+        onToggleMarginGuides={vi.fn()}
+        layoutMode="single"
+        onLayoutModeChange={vi.fn()}
+        suspendAutoRender={true}
+      />
+    );
+    expect(previewQueue.length).toBe(1);
+
+    // suspend 解除（メイン画面へ復帰）すると最新本文が即時再描画されること
+    rerender(
+      <PagedPreviewPane
+        ref={handleRef}
+        documentId="doc-1"
+        markdown="# 別ウィンドウ編集中に更新"
+        frontmatter={DEFAULT_FRONTMATTER}
+        assets={{}}
+        autoUpdate={false}
+        onToggleAutoUpdate={vi.fn()}
+        showMarginGuides={false}
+        onToggleMarginGuides={vi.fn()}
+        layoutMode="single"
+        onLayoutModeChange={vi.fn()}
+        suspendAutoRender={false}
+      />
+    );
+    await waitFor(() => expect(previewQueue.length).toBe(2));
+    await act(async () => {
+      previewQueue[1].resolve([
+        { id: "page-1", bodyText: "別ウィンドウ編集中に更新" },
+      ]);
+    });
+    await waitFor(() => {
+      expect(container.querySelector(".paged-preview-canvas")?.textContent).toContain(
+        "別ウィンドウ編集中に更新"
+      );
+    });
+  });
 });

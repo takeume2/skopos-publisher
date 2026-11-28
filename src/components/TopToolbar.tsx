@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Columns2,
   Download,
+  ExternalLink,
   Eye,
   FileCode2,
   FolderOpen,
@@ -23,6 +24,10 @@ interface TopToolbarProps {
   saveStatus: SaveStatus;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  isPreviewPoppedOut?: boolean;
+  onOpenPopoutPreview?: () => void;
+  onFocusPopoutPreview?: () => void;
+  onDockPopoutPreview?: () => void;
   onImportMarkdown: (content: string, filename?: string) => void;
   onImportFolder: (files: FileList) => void;
   onExportMarkdown: () => void;
@@ -42,6 +47,10 @@ export function TopToolbar({
   saveStatus,
   viewMode,
   onViewModeChange,
+  isPreviewPoppedOut = false,
+  onOpenPopoutPreview,
+  onFocusPopoutPreview,
+  onDockPopoutPreview,
   onImportMarkdown,
   onImportFolder,
   onExportMarkdown,
@@ -118,51 +127,95 @@ export function TopToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        <div
-          role="group"
-          aria-label="表示モード切替"
-          className="flex items-center rounded-md border border-slate-700 bg-slate-950 p-0.5"
-        >
-          <button
-            type="button"
-            aria-pressed={viewMode === "editor"}
-            onClick={() => onViewModeChange("editor")}
-            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition ${FOCUS_RING} ${
-              viewMode === "editor"
-                ? "bg-slate-800 text-white"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
+        {isPreviewPoppedOut ? (
+          <div
+            role="status"
+            className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/50 bg-sky-500/15 px-2.5 py-1 text-xs text-sky-200"
           >
-            <FileCode2 className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">エディタのみ</span>
-          </button>
-          <button
-            type="button"
-            aria-pressed={viewMode === "split"}
-            onClick={() => onViewModeChange("split")}
-            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition ${FOCUS_RING} ${
-              viewMode === "split"
-                ? "bg-slate-800 text-white"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Columns2 className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">分割表示</span>
-          </button>
-          <button
-            type="button"
-            aria-pressed={viewMode === "preview"}
-            onClick={() => onViewModeChange("preview")}
-            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition ${FOCUS_RING} ${
-              viewMode === "preview"
-                ? "bg-slate-800 text-white"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Eye className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">プレビューのみ</span>
-          </button>
-        </div>
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+            <span className="font-medium">別ウィンドウ表示中</span>
+            {onFocusPopoutPreview && (
+              <button
+                type="button"
+                onClick={onFocusPopoutPreview}
+                title="プレビューウィンドウを前面に表示"
+                className={`rounded px-2 py-0.5 text-[11px] font-medium text-sky-200 transition hover:bg-sky-500/25 hover:text-white ${FOCUS_RING}`}
+              >
+                前面へ
+              </button>
+            )}
+            {onDockPopoutPreview && (
+              <button
+                type="button"
+                onClick={onDockPopoutPreview}
+                title="プレビューをメイン画面へ戻す"
+                className={`rounded bg-sky-600/50 px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-sky-600/80 ${FOCUS_RING}`}
+              >
+                メインに戻す
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div
+              role="group"
+              aria-label="表示モード切替"
+              className="flex items-center rounded-md border border-slate-700 bg-slate-950 p-0.5"
+            >
+              <button
+                type="button"
+                aria-pressed={viewMode === "editor"}
+                onClick={() => onViewModeChange("editor")}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition ${FOCUS_RING} ${
+                  viewMode === "editor"
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <FileCode2 className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">エディタのみ</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={viewMode === "split"}
+                onClick={() => onViewModeChange("split")}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition ${FOCUS_RING} ${
+                  viewMode === "split"
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Columns2 className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">分割表示</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={viewMode === "preview"}
+                onClick={() => onViewModeChange("preview")}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition ${FOCUS_RING} ${
+                  viewMode === "preview"
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">プレビューのみ</span>
+              </button>
+            </div>
+
+            {onOpenPopoutPreview && (
+              <button
+                type="button"
+                onClick={onOpenPopoutPreview}
+                title="プレビューを別ウィンドウに分離"
+                aria-label="プレビューを別ウィンドウで開く"
+                className={`rounded-md border border-slate-700 bg-slate-800 p-1.5 text-slate-300 transition hover:border-sky-500/60 hover:bg-slate-700 hover:text-white ${FOCUS_RING}`}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

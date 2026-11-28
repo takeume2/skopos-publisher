@@ -87,6 +87,8 @@ interface PagedPreviewPaneProps {
   restoreNotice?: string | null;
   onDismissRestoreNotice?: () => void;
   assetRestoreNonce?: number;
+  suspendAutoRender?: boolean;
+  headerRightExtra?: React.ReactNode;
 }
 
 interface PagedLayoutInstance {
@@ -460,6 +462,8 @@ export function PagedPreviewPane({
   restoreNotice = null,
   onDismissRestoreNotice,
   assetRestoreNonce = 0,
+  suspendAutoRender = false,
+  headerRightExtra,
 }: PagedPreviewPaneProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previewHostRef = useRef<HTMLDivElement>(null);
@@ -492,6 +496,7 @@ export function PagedPreviewPane({
   const renderIdRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMountedRef = useRef<boolean>(false);
+  const wasSuspendedRef = useRef<boolean>(suspendAutoRender);
 
   const [zoom, setZoom] = useState<number>(85);
   const [totalPages, setTotalPages] = useState<number>(0);
@@ -805,16 +810,36 @@ export function PagedPreviewPane({
       debounceTimerRef.current = null;
     }
 
+    if (suspendAutoRender) {
+      wasSuspendedRef.current = true;
+      return;
+    }
+
+    const resumedFromSuspend = wasSuspendedRef.current;
+    wasSuspendedRef.current = false;
+
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
-      renderDocument(markdown, documentId);
+      void renderDocument(markdown, documentId);
+      return;
+    }
+
+    if (resumedFromSuspend) {
+      if (
+        !isSameRenderSnapshot(
+          committedSnapshotRef.current,
+          currentSnapshotRef.current
+        )
+      ) {
+        void renderDocument(markdown, documentId);
+      }
       return;
     }
 
     if (!autoUpdate) return;
 
     debounceTimerRef.current = setTimeout(() => {
-      renderDocument(markdown, documentId);
+      void renderDocument(markdown, documentId);
     }, 800);
 
     return () => {
@@ -828,6 +853,7 @@ export function PagedPreviewPane({
     markdown,
     assets,
     autoUpdate,
+    suspendAutoRender,
     frontmatter.confidential_mode,
     frontmatter.confidential_label,
     frontmatter.recipient,
@@ -838,6 +864,7 @@ export function PagedPreviewPane({
 
   useEffect(() => {
     if (
+      !suspendAutoRender &&
       assetRestoreNonce > 0 &&
       assetRestoreNonce !== lastRestoreNonceRef.current
     ) {
@@ -848,7 +875,7 @@ export function PagedPreviewPane({
       }
       void renderDocument(markdown, documentId);
     }
-  }, [assetRestoreNonce, documentId, markdown, renderDocument]);
+  }, [assetRestoreNonce, documentId, markdown, renderDocument, suspendAutoRender]);
 
   useEffect(() => {
     return () => {
@@ -1226,6 +1253,8 @@ export function PagedPreviewPane({
             )}
             <span>再描画</span>
           </button>
+
+          {headerRightExtra}
         </div>
       </div>
 
@@ -1237,7 +1266,9 @@ export function PagedPreviewPane({
           <div className="flex min-w-0 items-center gap-1.5">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
             <span className="truncate">
-              未解決の画像が {unresolvedAssets.length} 件あります — 画像ファイルをプレビューへドロップで一括復元（各枠へ直接ドロップで個別置換）
+              {onDropFilesOnPreview || onDropFileOnPlaceholder
+                ? `未解決の画像が ${unresolvedAssets.length} 件あります — 画像ファイルをプレビューへドロップで一括復元（各枠へ直接ドロップで個別置換）`
+                : `未解決の画像が ${unresolvedAssets.length} 件あります — メインウィンドウのプレビューで画像をドロップして復元してください`}
             </span>
           </div>
         </div>

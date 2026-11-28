@@ -25,6 +25,7 @@ const UNSUPPORTED_DROP_MESSAGE =
 export interface EditorJumpRequest {
   line: number;
   requestId: number;
+  align?: "start" | "center";
 }
 
 interface EditorPaneProps {
@@ -95,38 +96,44 @@ export function EditorPane({
     editorRef.current?.view?.focus();
   }, []);
 
-  const executeJumpToLine = useCallback((view: EditorView, line: number) => {
-    const doc = view.state?.doc;
-    if (!doc || typeof doc.line !== "function") return;
+  const executeJumpToLine = useCallback(
+    (view: EditorView, line: number, align: "start" | "center" = "start") => {
+      const doc = view.state?.doc;
+      if (!doc || typeof doc.line !== "function") return;
 
-    const totalLines = Math.max(1, doc.lines ?? 1);
-    const clampedLine = Math.min(Math.max(1, Math.floor(line)), totalLines);
-    const lineInfo = doc.line(clampedLine);
+      const totalLines = Math.max(1, doc.lines ?? 1);
+      const clampedLine = Math.min(Math.max(1, Math.floor(line)), totalLines);
+      const lineInfo = doc.line(clampedLine);
 
-    const scrollEffect =
-      typeof EditorView.scrollIntoView === "function"
-        ? EditorView.scrollIntoView(lineInfo.from, { y: "start", yMargin: 24 })
-        : undefined;
+      const scrollEffect =
+        typeof EditorView.scrollIntoView === "function"
+          ? EditorView.scrollIntoView(
+              lineInfo.from,
+              align === "center" ? { y: "center" } : { y: "start", yMargin: 24 }
+            )
+          : undefined;
 
-    if (scrollEffect) {
-      view.dispatch({
-        selection: { anchor: lineInfo.from, head: lineInfo.from },
-        effects: scrollEffect,
-      });
-    } else {
-      view.dispatch({
-        selection: { anchor: lineInfo.from, head: lineInfo.from },
-        scrollIntoView: true,
-      });
-    }
-    view.focus();
+      if (scrollEffect) {
+        view.dispatch({
+          selection: { anchor: lineInfo.from, head: lineInfo.from },
+          effects: scrollEffect,
+        });
+      } else {
+        view.dispatch({
+          selection: { anchor: lineInfo.from, head: lineInfo.from },
+          scrollIntoView: true,
+        });
+      }
+      view.focus();
 
-    setCursorInfo({ line: clampedLine, col: 1 });
-    if (lastReportedLineRef.current !== clampedLine) {
-      lastReportedLineRef.current = clampedLine;
-      onCursorLineChangeRef.current?.(clampedLine);
-    }
-  }, []);
+      setCursorInfo({ line: clampedLine, col: 1 });
+      if (lastReportedLineRef.current !== clampedLine) {
+        lastReportedLineRef.current = clampedLine;
+        onCursorLineChangeRef.current?.(clampedLine);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!jumpRequest) return;
@@ -136,7 +143,7 @@ export function EditorPane({
     if (view) {
       lastHandledJumpIdRef.current = jumpRequest.requestId;
       pendingJumpRef.current = null;
-      executeJumpToLine(view, jumpRequest.line);
+      executeJumpToLine(view, jumpRequest.line, jumpRequest.align);
     } else {
       pendingJumpRef.current = jumpRequest;
     }
@@ -148,7 +155,7 @@ export function EditorPane({
       if (pending && pending.requestId !== lastHandledJumpIdRef.current) {
         lastHandledJumpIdRef.current = pending.requestId;
         pendingJumpRef.current = null;
-        executeJumpToLine(view, pending.line);
+        executeJumpToLine(view, pending.line, pending.align);
       }
     },
     [executeJumpToLine]
