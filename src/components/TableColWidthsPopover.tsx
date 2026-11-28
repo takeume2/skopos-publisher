@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, X } from "lucide-react";
+import { RotateCcw, Undo2, X } from "lucide-react";
 import {
   adjustAdjacentColumnWidths,
   buildColumnWidthPresets,
@@ -22,6 +22,12 @@ interface TableColWidthsPopoverProps {
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400";
 
+function areWidthsEqual(a: number[] | null, b: number[] | null): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((v, i) => v === b[i]);
+}
+
 export function TableColWidthsPopover({
   tableContext,
   onApply,
@@ -35,12 +41,34 @@ export function TableColWidthsPopover({
   );
 
   const [draftWidths, setDraftWidths] = useState<number[]>(initialWidths);
-  const barRef = useRef<HTMLDivElement>(null);
+  const draftWidthsRef = useRef<number[]>(draftWidths);
+  draftWidthsRef.current = draftWidths;
 
-  const contextKey = `${tableContext.tableStartLine}:${tableContext.columnCount}:${tableContext.widths?.join(",") ?? "auto"}`;
+  const initialSnapshotRef = useRef<number[] | null>(
+    tableContext.widths ? [...tableContext.widths] : null
+  );
+  const barRef = useRef<HTMLDivElement>(null);
+  const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeDragCleanupRef = useRef<(() => void) | null>(null);
+
+  const cancelPendingInputCommit = useCallback(() => {
+    if (inputDebounceRef.current) {
+      clearTimeout(inputDebounceRef.current);
+      inputDebounceRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     setDraftWidths(initialWidths);
-  }, [contextKey, initialWidths]);
+  }, [initialWidths]);
+
+  useEffect(() => {
+    return () => {
+      cancelPendingInputCommit();
+      activeDragCleanupRef.current?.();
+      activeDragCleanupRef.current = null;
+    };
+  }, [cancelPendingInputCommit]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -52,6 +80,33 @@ export function TableColWidthsPopover({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
+
+  const commitWidths = useCallback(
+    (nextWidths: number[]) => {
+      cancelPendingInputCommit();
+      setDraftWidths(nextWidths);
+      draftWidthsRef.current = nextWidths;
+      onApply(nextWidths);
+    },
+    [cancelPendingInputCommit, onApply]
+  );
+
+  const handleResetToAuto = useCallback(() => {
+    cancelPendingInputCommit();
+    const equal = buildEqualColumnWidths(tableContext.columnCount);
+    setDraftWidths(equal);
+    draftWidthsRef.current = equal;
+    onResetAuto();
+  }, [cancelPendingInputCommit, onResetAuto, tableContext.columnCount]);
+
+  const handleRevertInitial = useCallback(() => {
+    const snapshot = initialSnapshotRef.current;
+    if (snapshot === null) {
+      handleResetToAuto();
+    } else {
+      commitWidths([...snapshot]);
+    }
+  }, [commitWidths, handleResetToAuto]);
 
   const presets = useMemo(
     () => buildColumnWidthPresets(tableContext.columnCount),
@@ -66,8 +121,12 @@ export function TableColWidthsPopover({
       if (barWidth <= 0) return;
 
       e.preventDefault();
+      cancelPendingInputCommit();
+      activeDragCleanupRef.current?.();
+
       const startX = e.clientX;
-      const startWidths = [...draftWidths];
+      const startWidths = [...draftWidthsRef.current];
+      let latestWidths = startWidths;
 
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
@@ -75,22 +134,36 @@ export function TableColWidthsPopover({
       const onPointerMove = (moveEvent: PointerEvent) => {
         const dx = moveEvent.clientX - startX;
         const deltaPercent = (dx / barWidth) * 100;
-        setDraftWidths(
-          adjustAdjacentColumnWidths(startWidths, dividerIndex, deltaPercent)
+        const next = adjustAdjacentColumnWidths(
+          startWidths,
+          dividerIndex,
+          deltaPercent
         );
+        latestWidths = next;
+        setDraftWidths(next);
+        draftWidthsRef.current = next;
       };
 
-      const onPointerUp = () => {
+      const cleanupDrag = () => {
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         window.removeEventListener("pointermove", onPointerMove);
         window.removeEventListener("pointerup", onPointerUp);
+        activeDragCleanupRef.current = null;
       };
 
+      const onPointerUp = () => {
+        cleanupDrag();
+        if (!areWidthsEqual(latestWidths, tableContext.widths)) {
+          onApply(latestWidths);
+        }
+      };
+
+      activeDragCleanupRef.current = cleanupDrag;
       window.addEventListener("pointermove", onPointerMove);
       window.addEventListener("pointerup", onPointerUp);
     },
-    [draftWidths]
+    [cancelPendingInputCommit, onApply, tableContext.widths]
   );
 
   const handleDividerKeyDown = useCallback(
@@ -98,20 +171,59 @@ export function TableColWidthsPopover({
       const step = e.shiftKey ? 1 : 5;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        setDraftWidths((prev) =>
-          adjustAdjacentColumnWidths(prev, dividerIndex, -step)
+        const next = adjustAdjacentColumnWidths(
+          draftWidthsRef.current,
+          dividerIndex,
+          -step
         );
+        commitWidths(next);
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        setDraftWidths((prev) =>
-          adjustAdjacentColumnWidths(prev, dividerIndex, step)
+        const next = adjustAdjacentColumnWidths(
+          draftWidthsRef.current,
+          dividerIndex,
+          step
         );
+        commitWidths(next);
       }
     },
-    []
+    [commitWidths]
   );
 
+  const handleNumericInputChange = useCallback(
+    (colIndex: number, rawValue: string) => {
+      const nextVal = Number(rawValue);
+      if (!Number.isFinite(nextVal)) return;
+      const next = updateSingleColumnWidth(
+        draftWidthsRef.current,
+        colIndex,
+        nextVal
+      );
+      setDraftWidths(next);
+      draftWidthsRef.current = next;
+
+      cancelPendingInputCommit();
+      inputDebounceRef.current = setTimeout(() => {
+        inputDebounceRef.current = null;
+        onApply(draftWidthsRef.current);
+      }, 200);
+    },
+    [cancelPendingInputCommit, onApply]
+  );
+
+  const flushNumericInputCommit = useCallback(() => {
+    if (inputDebounceRef.current) {
+      clearTimeout(inputDebounceRef.current);
+      inputDebounceRef.current = null;
+      onApply(draftWidthsRef.current);
+    }
+  }, [onApply]);
+
   const directivePreview = formatColWidthsDirective(draftWidths);
+  const canRevertInitial = !areWidthsEqual(
+    tableContext.widths,
+    initialSnapshotRef.current
+  );
 
   return (
     <div
@@ -132,7 +244,7 @@ export function TableColWidthsPopover({
           {tableContext.widths && (
             <button
               type="button"
-              onClick={onResetAuto}
+              onClick={handleResetToAuto}
               className={`inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-300 transition hover:bg-slate-700 hover:text-white ${FOCUS_RING}`}
             >
               <RotateCcw className="h-3 w-3" />
@@ -184,7 +296,7 @@ export function TableColWidthsPopover({
                     aria-valuemin={MIN_COLUMN_WIDTH_PERCENT}
                     aria-valuemax={100 - MIN_COLUMN_WIDTH_PERCENT}
                     aria-valuenow={width}
-                    title="ドラッグまたは左右キーで列幅を調整"
+                    title="ドラッグまたは左右キーで列幅を調整（即時反映）"
                     onPointerDown={(e) => handleDividerPointerDown(idx, e)}
                     onKeyDown={(e) => handleDividerKeyDown(idx, e)}
                     className="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize focus:outline-none"
@@ -197,7 +309,7 @@ export function TableColWidthsPopover({
           })}
         </div>
         <p className="mt-1 text-[10px] text-slate-400">
-          列の境界線を左右にドラッグ（または選択して ← / → キー）すると、合計 100% を保ったまま幅を調整できます。
+          境界線のドラッグ（離すと即反映）や ← / → キー・プリセットで、開いたままプレビューを見ながら微調整できます。
         </p>
       </div>
 
@@ -209,7 +321,7 @@ export function TableColWidthsPopover({
             <button
               key={preset.id}
               type="button"
-              onClick={() => setDraftWidths(preset.widths)}
+              onClick={() => commitWidths(preset.widths)}
               className={`rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[11px] text-slate-200 transition hover:border-sky-500/60 hover:bg-slate-700 hover:text-white ${FOCUS_RING}`}
             >
               {preset.label}
@@ -237,12 +349,12 @@ export function TableColWidthsPopover({
                 max={100 - MIN_COLUMN_WIDTH_PERCENT * (draftWidths.length - 1)}
                 step={1}
                 value={width}
-                onChange={(e) => {
-                  const nextVal = Number(e.target.value);
-                  if (Number.isFinite(nextVal)) {
-                    setDraftWidths((prev) =>
-                      updateSingleColumnWidth(prev, idx, nextVal)
-                    );
+                onChange={(e) => handleNumericInputChange(idx, e.target.value)}
+                onBlur={flushNumericInputCommit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    flushNumericInputCommit();
                   }
                 }}
                 className="w-11 rounded border border-slate-700 bg-slate-900 px-1 py-0.5 text-right font-mono text-[11px] tabular-nums text-white focus:border-sky-500 focus:outline-none"
@@ -259,19 +371,22 @@ export function TableColWidthsPopover({
           {directivePreview}
         </code>
         <div className="ml-auto flex items-center gap-2">
+          {canRevertInitial && (
+            <button
+              type="button"
+              onClick={handleRevertInitial}
+              className={`inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white ${FOCUS_RING}`}
+            >
+              <Undo2 className="h-3 w-3" />
+              <span>元に戻す</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
-            className={`rounded-md border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300 transition hover:bg-slate-800 ${FOCUS_RING}`}
-          >
-            キャンセル
-          </button>
-          <button
-            type="button"
-            onClick={() => onApply(draftWidths)}
             className={`rounded-md bg-sky-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-sky-500 ${FOCUS_RING}`}
           >
-            適用する
+            完了
           </button>
         </div>
       </div>

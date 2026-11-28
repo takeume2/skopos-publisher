@@ -470,7 +470,7 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
     expect(screen.getByText(/行数:/)).toBeTruthy();
   });
 
-  it("enables table column-width popover when cursor is inside a table, inserts directive via preset/keyboard, and resets to auto (#62)", () => {
+  it("enables table column-width popover when cursor is inside a table, live-applies preset/keyboard edits while staying open, and resets/reverts cleanly (#62)", () => {
     const tableLines = [
       "# レポート",
       "",
@@ -508,33 +508,27 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
     expect(toolbarColBtn.disabled).toBe(false);
     expect(screen.getByRole("button", { name: "列幅: 自動" })).toBeTruthy();
 
-    // ポップオーバーを開き、ヘッダー名とプリセットを確認
+    // ポップオーバーを開き、ヘッダー名を確認
     fireEvent.click(toolbarColBtn);
     expect(screen.getByRole("dialog", { name: "テーブル列幅の調整" })).toBeTruthy();
     expect(screen.getByLabelText("IDと項目名の境界を調整")).toBeTruthy();
 
-    // プリセット「左を狭く」選択（15, 30, 55）→ 仕切りを右キーで +5% → (20, 25, 55)
+    // プリセット「左を狭く」選択（15, 30, 55）→ 即座に反映され、ポップオーバーは開いたまま
     fireEvent.click(screen.getByRole("button", { name: "左を狭く" }));
-    fireEvent.keyDown(screen.getByLabelText("IDと項目名の境界を調整"), {
-      key: "ArrowRight",
-    });
-    expect(screen.getByText("<!-- col-widths: 20, 25, 55 -->")).toBeTruthy();
-
-    // 適用するとテーブル直前にコメントを単一トランザクションで挿入する
-    fireEvent.click(screen.getByRole("button", { name: "適用する" }));
     expect(mockDispatch).toHaveBeenCalledTimes(1);
     const tableStartOffset = "# レポート\n\n".length;
     expect(mockDispatch.mock.calls[0][0].changes).toEqual({
       from: tableStartOffset,
       to: tableStartOffset,
-      insert: "<!-- col-widths: 20, 25, 55 -->\n",
+      insert: "<!-- col-widths: 15, 30, 55 -->\n",
     });
+    expect(screen.getByRole("dialog", { name: "テーブル列幅の調整" })).toBeTruthy();
 
-    // 既存ディレクティブありの状態で再レンダリング → ステータスバー表示と「自動に戻す」による削除を確認
+    // Markdown が更新された状態を反映し、開いたまま仕切りを右キーで +5% → (20, 25, 55) が即反映される
     const withDirectiveLines = [
       "# レポート",
       "",
-      "<!-- col-widths: 20, 25, 55 -->",
+      "<!-- col-widths: 15, 30, 55 -->",
       "| ID | 項目名 | 説明 |",
       "| :--- | :--- | :--- |",
       "| 1 | 認証 | 詳細 |",
@@ -551,15 +545,33 @@ describe("EditorPane file drop restriction (#30) & drop position (#40)", () => {
     );
     mockDispatch.mockClear();
 
-    const statusBadge = screen.getByRole("button", { name: "列幅: 20/25/55%" });
-    fireEvent.click(statusBadge);
-    fireEvent.click(screen.getByRole("button", { name: "自動に戻す" }));
-
+    expect(screen.getByRole("button", { name: "列幅: 15/30/55%" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByLabelText("IDと項目名の境界を調整"), {
+      key: "ArrowRight",
+    });
     expect(mockDispatch).toHaveBeenCalledTimes(1);
     expect(mockDispatch.mock.calls[0][0].changes).toEqual({
       from: tableStartOffset,
-      to: tableStartOffset + "<!-- col-widths: 20, 25, 55 -->\n".length,
+      to: tableStartOffset + "<!-- col-widths: 15, 30, 55 -->".length,
+      insert: "<!-- col-widths: 20, 25, 55 -->",
+    });
+    expect(screen.getByRole("dialog", { name: "テーブル列幅の調整" })).toBeTruthy();
+
+    // 「元に戻す」で開く前の状態（自動幅）へ戻しても開いたまま
+    mockDispatch.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "元に戻す" }));
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch.mock.calls[0][0].changes).toEqual({
+      from: tableStartOffset,
+      to: tableStartOffset + "<!-- col-widths: 15, 30, 55 -->\n".length,
       insert: "",
     });
+    expect(screen.getByRole("dialog", { name: "テーブル列幅の調整" })).toBeTruthy();
+
+    // 「完了」ボタンで閉じ、エディタへフォーカスを戻す
+    mockFocus.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "完了" }));
+    expect(screen.queryByRole("dialog", { name: "テーブル列幅の調整" })).toBeNull();
+    expect(mockFocus).toHaveBeenCalledTimes(1);
   });
 });

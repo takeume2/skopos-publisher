@@ -73,7 +73,6 @@ export function EditorPane({
         activeTableContext,
         nextWidths
       );
-      setIsColWidthsOpen(false);
       if (!edit) return;
 
       const view = editorRef.current?.view;
@@ -81,7 +80,6 @@ export function EditorPane({
         view.dispatch({
           changes: { from: edit.from, to: edit.to, insert: edit.insert },
         });
-        view.focus();
         return;
       }
 
@@ -91,6 +89,11 @@ export function EditorPane({
     },
     [activeTableContext, onChange, value]
   );
+
+  const handleCloseColWidths = useCallback(() => {
+    setIsColWidthsOpen(false);
+    editorRef.current?.view?.focus();
+  }, []);
 
   const executeJumpToLine = useCallback((view: EditorView, line: number) => {
     const doc = view.state?.doc;
@@ -389,7 +392,7 @@ export function EditorPane({
               tableContext={activeTableContext}
               onApply={(widths) => applyTableColWidths(widths)}
               onResetAuto={() => applyTableColWidths(null)}
-              onClose={() => setIsColWidthsOpen(false)}
+              onClose={handleCloseColWidths}
             />
           </div>
         )}
