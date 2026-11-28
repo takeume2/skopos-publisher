@@ -1,11 +1,26 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { clear, get, keys, set } from "idb-keyval";
 import { useIndexedDbStorage } from "@/hooks/useIndexedDbStorage";
 
 describe("useIndexedDbStorage", () => {
+  const originalLanguage = Object.getOwnPropertyDescriptor(
+    window.navigator,
+    "language"
+  );
+
   beforeEach(async () => {
     await clear();
+    Object.defineProperty(window.navigator, "language", {
+      configurable: true,
+      value: "ja-JP",
+    });
+  });
+
+  afterEach(() => {
+    if (originalLanguage) {
+      Object.defineProperty(window.navigator, "language", originalLanguage);
+    }
   });
 
   it("migrates legacy keys idempotently and separates shared vs doc assets", async () => {
@@ -221,5 +236,38 @@ describe("useIndexedDbStorage", () => {
     const exported = await result.current.getExpandedMarkdownForDoc(docId);
     expect(exported?.content).toContain("![missing](asset:missing.png)");
     expect(exported?.content).toContain("![ok](data:image/png;base64,OK_IMG)");
+  });
+
+  it("auto-detects English locale for Sri Lanka (en-LK), loads English sample/blank docs, and persists manual locale switch (#71)", async () => {
+    Object.defineProperty(window.navigator, "language", {
+      configurable: true,
+      value: "en-LK",
+    });
+
+    const { result, unmount } = renderHook(() => useIndexedDbStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    expect(result.current.prefs.locale).toBe("en");
+    expect(result.current.markdown).toContain("Next-Gen Cloud Platform");
+
+    await act(async () => {
+      await result.current.createDocument();
+    });
+    expect(result.current.documentList[0].title).toBe("New Document");
+
+    await act(async () => {
+      await result.current.deleteAllDocuments();
+    });
+    expect(result.current.documentList[0].title).toBe("Untitled Document");
+
+    // 手動で日本語へ切り替えた設定が再マウント後も優先維持されること
+    await act(async () => {
+      await result.current.updatePrefs({ locale: "ja" });
+    });
+    unmount();
+
+    const remounted = renderHook(() => useIndexedDbStorage());
+    await waitFor(() => expect(remounted.result.current.isLoaded).toBe(true));
+    expect(remounted.result.current.prefs.locale).toBe("ja");
   });
 });

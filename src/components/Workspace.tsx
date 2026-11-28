@@ -21,6 +21,11 @@ import {
   processUploadedImageFile,
 } from "@/lib/image-processing";
 import {
+  formatMessage,
+  getDictionary,
+  type Locale,
+} from "@/lib/i18n";
+import {
   extractOutlineHeadings,
   findActiveOutlineHeadingId,
   type OutlineHeading,
@@ -44,6 +49,7 @@ import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
 import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
 import { EditorJumpRequest, EditorPane } from "./EditorPane";
+import { I18nProvider } from "./I18nProvider";
 import {
   PagedPreviewPane,
   type PagedPreviewPaneHandle,
@@ -172,10 +178,14 @@ export function Workspace() {
     };
   }, []);
 
+  const activeLocale: Locale = prefs.locale ?? "ja";
+  const dict = useMemo(() => getDictionary(activeLocale), [activeLocale]);
+  const md = dict.modals;
+
   const effectiveModal: ModalState = storageError
     ? {
         kind: "notice",
-        title: "保存容量エラー",
+        title: md.storageQuotaTitle,
         message: storageError,
       }
     : modalState;
@@ -266,6 +276,7 @@ export function Workspace() {
       autoUpdate: prefs.autoUpdate,
       showMarginGuides: prefs.showMarginGuides,
       layoutMode: prefs.layoutMode,
+      locale: activeLocale,
       skipPrintHeaderFooterNotice: prefs.skipPrintHeaderFooterNotice,
       enablePreflightCheck: prefs.enablePreflightCheck,
       preflightNgWords: prefs.preflightNgWords,
@@ -279,6 +290,7 @@ export function Workspace() {
       autoUpdate: prefs.autoUpdate,
       showMarginGuides: prefs.showMarginGuides,
       layoutMode: prefs.layoutMode,
+      locale: activeLocale,
       skipPrintHeaderFooterNotice: prefs.skipPrintHeaderFooterNotice,
       enablePreflightCheck: prefs.enablePreflightCheck,
       preflightNgWords: prefs.preflightNgWords,
@@ -426,6 +438,7 @@ export function Workspace() {
     prefs.autoUpdate,
     prefs.showMarginGuides,
     prefs.layoutMode,
+    activeLocale,
     prefs.skipPrintHeaderFooterNotice,
     prefs.enablePreflightCheck,
     prefs.preflightNgWords,
@@ -481,9 +494,8 @@ export function Workspace() {
     if (!popup) {
       setModalState({
         kind: "notice",
-        title: "別ウィンドウを開けませんでした",
-        message:
-          "ブラウザによりポップアップがブロックされました。このサイトのポップアップ表示を許可してから再度お試しください。",
+        title: md.popupBlockedTitle,
+        message: md.popupBlockedMessage,
       });
       return;
     }
@@ -491,7 +503,7 @@ export function Workspace() {
     popupWindowRef.current = popup;
     setIsPreviewPoppedOut(true);
     popup.focus?.();
-  }, [viewMode]);
+  }, [md.popupBlockedMessage, md.popupBlockedTitle, viewMode]);
 
   const handleFocusPopoutPreview = useCallback(() => {
     const popup = popupWindowRef.current;
@@ -547,36 +559,50 @@ export function Workspace() {
 
   const handleUploadInlineImage = useCallback(
     async (file: File): Promise<string> => {
-      const processed = await processUploadedImageFile(file, "inline");
+      const processed = await processUploadedImageFile(file, "inline", {
+        locale: activeLocale,
+      });
       const assetId = `asset:img_${Date.now()}`;
       await saveAsset(assetId, processed.dataUrl);
       return assetId;
     },
-    [saveAsset]
+    [activeLocale, saveAsset]
   );
 
   const handleDropFileOnPlaceholder = useCallback(
     async (assetKey: string, file: File) => {
       try {
-        const processed = await processUploadedImageFile(file, "inline");
+        const processed = await processUploadedImageFile(file, "inline", {
+          locale: activeLocale,
+        });
         await saveAsset(assetKey, processed.dataUrl);
         setAssetRestoreNonce((n) => n + 1);
         const keyLabel = assetKey.startsWith("asset:")
           ? assetKey.slice(6)
           : assetKey;
-        showRestoreNotice(`「${file.name}」を ${keyLabel} として復元しました`);
+        showRestoreNotice(
+          formatMessage(md.restoreSuccessSingle, {
+            file: file.name,
+            key: keyLabel,
+          })
+        );
       } catch (err) {
         setModalState({
           kind: "notice",
-          title: "画像復元エラー",
+          title: md.restoreErrorTitle,
           message:
-            err instanceof Error
-              ? err.message
-              : "画像の読み込みに失敗しました。",
+            err instanceof Error ? err.message : md.restoreErrorFallback,
         });
       }
     },
-    [saveAsset, showRestoreNotice]
+    [
+      activeLocale,
+      md.restoreErrorFallback,
+      md.restoreErrorTitle,
+      md.restoreSuccessSingle,
+      saveAsset,
+      showRestoreNotice,
+    ]
   );
 
   const handleDropFilesOnPreview = useCallback(
@@ -598,8 +624,8 @@ export function Workspace() {
         matchDroppedFilesToUnresolvedAssets(files, unresolvedAssets);
 
       const unmatchedFileNames = unmatchedFiles.map((f) => f.name);
-      const skippedErrors = nonImageFiles.map(
-        (f) => `${f.name}（サポート対象外のファイル形式）`
+      const skippedErrors = nonImageFiles.map((f) =>
+        formatMessage(md.unsupportedFileFormat, { name: f.name })
       );
       const newEntries: Record<string, string> = {};
       let restoredCount = 0;
@@ -623,7 +649,8 @@ export function Workspace() {
                 try {
                   const processed = await processUploadedImageFile(
                     item.file,
-                    "inline"
+                    "inline",
+                    { locale: activeLocale }
                   );
                   return {
                     ok: true as const,
@@ -636,7 +663,9 @@ export function Workspace() {
                     error:
                       err instanceof Error
                         ? err.message
-                        : `${item.file.name} の読込失敗`,
+                        : formatMessage(md.fileReadFailed, {
+                            name: item.file.name,
+                          }),
                   };
                 }
               })
@@ -684,10 +713,20 @@ export function Workspace() {
           hadUnresolvedPlaceholders: true,
         });
       } else if (restoredCount > 0) {
-        showRestoreNotice(`${restoredCount} 件の未解決画像を復元しました`);
+        showRestoreNotice(
+          formatMessage(md.restoreSuccessBulk, { count: restoredCount })
+        );
       }
     },
-    [saveAssetsBatch, showRestoreNotice, unresolvedAssets]
+    [
+      activeLocale,
+      md.fileReadFailed,
+      md.restoreSuccessBulk,
+      md.unsupportedFileFormat,
+      saveAssetsBatch,
+      showRestoreNotice,
+      unresolvedAssets,
+    ]
   );
 
   const handleImportFolder = useCallback(
@@ -713,8 +752,8 @@ export function Workspace() {
       if (mdFiles.length === 0 && imageFiles.length === 0) {
         setModalState({
           kind: "notice",
-          title: "フォルダ読込",
-          message: "フォルダ内に .md ファイルおよび画像ファイルが見つかりませんでした。",
+          title: md.folderImportTitle,
+          message: md.folderImportEmpty,
         });
         return;
       }
@@ -725,13 +764,18 @@ export function Workspace() {
 
       for (const imgFile of imageFiles) {
         try {
-          const processed = await processUploadedImageFile(imgFile, "inline");
+          const processed = await processUploadedImageFile(imgFile, "inline", {
+            locale: activeLocale,
+          });
           if (
             totalAcceptedBytes + processed.finalBytes >
             MAX_FOLDER_TOTAL_IMAGE_BYTES
           ) {
             skippedReasons.push(
-              `${imgFile.name}（合計サイズ上限 ${formatImageLimitMb(MAX_FOLDER_TOTAL_IMAGE_BYTES)} 超過）`
+              formatMessage(md.folderSizeLimitSkipped, {
+                name: imgFile.name,
+                limit: formatImageLimitMb(MAX_FOLDER_TOTAL_IMAGE_BYTES),
+              })
             );
             continue;
           }
@@ -743,7 +787,9 @@ export function Workspace() {
           totalAcceptedBytes += processed.finalBytes;
         } catch (err) {
           skippedReasons.push(
-            err instanceof Error ? err.message : `${imgFile.name} の読込失敗`
+            err instanceof Error
+              ? err.message
+              : formatMessage(md.fileReadFailed, { name: imgFile.name })
           );
         }
       }
@@ -759,23 +805,45 @@ export function Workspace() {
         if (skippedReasons.length > 0) {
           setModalState({
             kind: "notice",
-            title: "一部画像をスキップしました",
-            message: `${Object.keys(newAssets).length} 件の画像を取り込み、${skippedReasons.length} 件をスキップしました: ${skippedReasons.slice(0, 3).join(" / ")}`,
+            title: md.folderPartialSkippedTitle,
+            message: formatMessage(md.folderPartialSkippedMessage, {
+              imported: Object.keys(newAssets).length,
+              skipped: skippedReasons.length,
+              reasons: skippedReasons.slice(0, 3).join(" / "),
+            }),
           });
         }
       } else {
         const skippedNote =
           skippedReasons.length > 0
-            ? `（${skippedReasons.length} 件は上限超過等のためスキップ）`
+            ? formatMessage(md.folderImagesSkippedNote, {
+                count: skippedReasons.length,
+              })
             : "";
         setModalState({
           kind: "notice",
-          title: "画像アセットを取り込みました",
-          message: `${Object.keys(newAssets).length} 件の画像を取り込みました${skippedNote}（.md ファイルは見つからなかったため現在の本文を維持します）。`,
+          title: md.folderImagesOnlyTitle,
+          message: formatMessage(md.folderImagesOnlyMessage, {
+            count: Object.keys(newAssets).length,
+            note: skippedNote,
+          }),
         });
       }
     },
-    [saveAssetsBatch, setMarkdown]
+    [
+      activeLocale,
+      md.fileReadFailed,
+      md.folderImagesOnlyMessage,
+      md.folderImagesOnlyTitle,
+      md.folderImagesSkippedNote,
+      md.folderImportEmpty,
+      md.folderImportTitle,
+      md.folderPartialSkippedMessage,
+      md.folderPartialSkippedTitle,
+      md.folderSizeLimitSkipped,
+      saveAssetsBatch,
+      setMarkdown,
+    ]
   );
 
   const handleExportDocumentById = useCallback(
@@ -806,7 +874,9 @@ export function Workspace() {
   const handleAddSharedAsset = useCallback(
     async (file: File) => {
       try {
-        const processed = await processUploadedImageFile(file, "shared");
+        const processed = await processUploadedImageFile(file, "shared", {
+          locale: activeLocale,
+        });
         const newId = `asset:shared_${Date.now()}_${Math.random()
           .toString(36)
           .slice(2, 5)}`;
@@ -814,15 +884,13 @@ export function Workspace() {
       } catch (err) {
         setModalState({
           kind: "notice",
-          title: "共通画像の追加エラー",
+          title: md.sharedAssetErrorTitle,
           message:
-            err instanceof Error
-              ? err.message
-              : "画像の読み込みに失敗しました。",
+            err instanceof Error ? err.message : md.restoreErrorFallback,
         });
       }
     },
-    [saveAsset]
+    [activeLocale, md.restoreErrorFallback, md.sharedAssetErrorTitle, saveAsset]
   );
 
   const handleApplySharedAsset = useCallback(
@@ -926,10 +994,8 @@ export function Workspace() {
           } else if (!result.cancelled) {
             setModalState({
               kind: "notice",
-              title: "PDF出力エラー",
-              message:
-                result.error ||
-                "組版レンダリングに失敗したため、PDF出力を開始できませんでした。プレビュー表示に切り替えて内容を確認してください。",
+              title: md.printErrorTitle,
+              message: result.error || md.printErrorFallback,
             });
           }
         })
@@ -943,7 +1009,7 @@ export function Workspace() {
     }
 
     runWindowPrint();
-  }, [runWindowPrint]);
+  }, [md.printErrorFallback, md.printErrorTitle, runWindowPrint]);
 
   const handlePrint = useCallback(() => {
     const evaluation = evaluatePrintConfirm({
@@ -953,6 +1019,7 @@ export function Workspace() {
       enablePreflightCheck: prefs.enablePreflightCheck,
       preflightNgWords: prefs.preflightNgWords,
       skipPrintHeaderFooterNotice: prefs.skipPrintHeaderFooterNotice,
+      locale: activeLocale,
     });
 
     if (evaluation.shouldShowDialog) {
@@ -967,6 +1034,7 @@ export function Workspace() {
     }
     executePrint();
   }, [
+    activeLocale,
     assets,
     executePrint,
     markdown,
@@ -1036,7 +1104,7 @@ export function Workspace() {
   if (!isLoaded) {
     return (
       <div className="flex h-dvh items-center justify-center bg-slate-950 text-sm text-slate-400">
-        ワークスペースを読み込んでいます...
+        {md.loadingWorkspace}
       </div>
     );
   }
@@ -1044,31 +1112,34 @@ export function Workspace() {
   const totalDocsBytes = documentList.reduce((sum, d) => sum + d.totalBytes, 0);
 
   return (
-    <div className="print-workspace-shell flex h-dvh flex-col overflow-hidden bg-slate-950">
-      <TopToolbar
-        title={parsed.frontmatter.title}
-        saveStatus={saveStatus}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        isPreviewPoppedOut={isPreviewPoppedOut}
-        onOpenPopoutPreview={handleOpenPopoutPreview}
-        onFocusPopoutPreview={handleFocusPopoutPreview}
-        onDockPopoutPreview={handleDockPopoutPreview}
-        onImportMarkdown={(content, filename) => {
-          setImportedFilename(filename ?? null);
-          setMarkdown(content);
-        }}
-        onImportFolder={handleImportFolder}
-        onExportMarkdown={handleExportMarkdown}
-        onPrint={handlePrint}
-        isPreparingPrint={isPreparingPrint}
-        isSidebarOpen={prefs.isSidebarOpen}
-        onToggleSidebar={() =>
-          void updatePrefs({ isSidebarOpen: !prefs.isSidebarOpen })
-        }
-        isSettingsOpen={isSettingsOpen}
-        onToggleSettings={() => setIsSettingsOpen((v) => !v)}
-      />
+    <I18nProvider locale={activeLocale}>
+      <div className="print-workspace-shell flex h-dvh flex-col overflow-hidden bg-slate-950">
+        <TopToolbar
+          title={parsed.frontmatter.title}
+          saveStatus={saveStatus}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          isPreviewPoppedOut={isPreviewPoppedOut}
+          onOpenPopoutPreview={handleOpenPopoutPreview}
+          onFocusPopoutPreview={handleFocusPopoutPreview}
+          onDockPopoutPreview={handleDockPopoutPreview}
+          onImportMarkdown={(content, filename) => {
+            setImportedFilename(filename ?? null);
+            setMarkdown(content);
+          }}
+          onImportFolder={handleImportFolder}
+          onExportMarkdown={handleExportMarkdown}
+          onPrint={handlePrint}
+          isPreparingPrint={isPreparingPrint}
+          isSidebarOpen={prefs.isSidebarOpen}
+          onToggleSidebar={() =>
+            void updatePrefs({ isSidebarOpen: !prefs.isSidebarOpen })
+          }
+          isSettingsOpen={isSettingsOpen}
+          onToggleSettings={() => setIsSettingsOpen((v) => !v)}
+          locale={activeLocale}
+          onLocaleChange={(nextLocale) => void updatePrefs({ locale: nextLocale })}
+        />
 
       <div className="print-workspace-shell flex min-h-0 flex-1 overflow-hidden">
         <DocumentSidebar
@@ -1091,7 +1162,8 @@ export function Workspace() {
             setModalState({
               kind: "reset-sample",
               docId: activeDocId,
-              title: parsed.frontmatter.title.trim() || "無題のドキュメント",
+              title:
+                parsed.frontmatter.title.trim() || dict.common.untitledDocument,
             })
           }
           onRequestDeleteDocument={(doc) =>
@@ -1146,13 +1218,13 @@ export function Workspace() {
               role="separator"
               tabIndex={0}
               aria-orientation="vertical"
-              aria-label="エディタとプレビューの幅を調整"
+              aria-label={md.resizeSeparatorAria}
               aria-valuemin={25}
               aria-valuemax={75}
               aria-valuenow={Math.round(splitPercent)}
               onPointerDown={startResize}
               onKeyDown={handleResizeKeyDown}
-              title="ドラッグまたは左右キーで幅を調整"
+              title={md.resizeSeparatorTitle}
               className="no-print w-1.5 shrink-0 cursor-col-resize bg-slate-800 transition hover:bg-sky-500 focus:bg-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-400"
             />
           )}
@@ -1191,12 +1263,14 @@ export function Workspace() {
                 <button
                   type="button"
                   onClick={handleOpenPopoutPreview}
-                  title="プレビューを別ウィンドウに分離"
-                  aria-label="プレビューを別ウィンドウに分離"
+                  title={dict.preview.popoutButtonTitle}
+                  aria-label={dict.preview.popoutButtonAria}
                   className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 transition hover:border-sky-500/60 hover:bg-zinc-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                 >
                   <ExternalLink className="h-3 w-3" />
-                  <span className="preview-cq-label">別ウィンドウ</span>
+                  <span className="preview-cq-label">
+                    {dict.preview.popoutButtonLabel}
+                  </span>
                 </button>
               }
             />
@@ -1267,7 +1341,7 @@ export function Workspace() {
                 onClick={closeModal}
                 className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500"
               >
-                閉じる
+                {dict.common.close}
               </button>
             </div>
           </div>
@@ -1280,20 +1354,26 @@ export function Workspace() {
               className="text-sm font-semibold text-white"
             >
               {effectiveModal.restoredCount > 0
-                ? `${effectiveModal.restoredCount} 件の画像を復元しました`
+                ? formatMessage(md.dropResultRestored, {
+                    count: effectiveModal.restoredCount,
+                  })
                 : effectiveModal.hadUnresolvedPlaceholders
-                  ? "一致するプレースホルダが見つかりませんでした"
-                  : "未解決の画像プレースホルダはありません"}
+                  ? md.dropResultNoMatch
+                  : md.dropResultNoUnresolved}
             </h2>
             {!effectiveModal.hadUnresolvedPlaceholders && (
               <p className="mt-2 text-xs leading-relaxed text-slate-300">
-                現在の文書には未解決の <code>asset:</code> 画像がありません。新しい画像を本文へ挿入する場合は、エディタ側へドロップしてください。
+                {md.dropResultNoUnresolvedBodyPrefix}
+                <code>asset:</code>
+                {md.dropResultNoUnresolvedBodySuffix}
               </p>
             )}
             {effectiveModal.unmatchedFileNames.length > 0 && (
               <div className="mt-3">
                 <p className="text-xs font-medium text-amber-300">
-                  一致しなかったファイル（{effectiveModal.unmatchedFileNames.length}件）
+                  {formatMessage(md.dropResultUnmatchedTitle, {
+                    count: effectiveModal.unmatchedFileNames.length,
+                  })}
                 </p>
                 <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2 font-mono text-[11px] text-slate-200">
                   {effectiveModal.unmatchedFileNames.map((name, idx) => (
@@ -1307,7 +1387,9 @@ export function Workspace() {
             {effectiveModal.skippedErrors.length > 0 && (
               <div className="mt-3">
                 <p className="text-xs font-medium text-red-300">
-                  スキップされたファイル（{effectiveModal.skippedErrors.length}件）
+                  {formatMessage(md.dropResultSkippedTitle, {
+                    count: effectiveModal.skippedErrors.length,
+                  })}
                 </p>
                 <ul className="mt-1.5 max-h-32 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2 text-[11px] text-red-200">
                   {effectiveModal.skippedErrors.map((errMsg, idx) => (
@@ -1324,7 +1406,7 @@ export function Workspace() {
                 onClick={closeModal}
                 className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500"
               >
-                閉じる
+                {dict.common.close}
               </button>
             </div>
           </div>
@@ -1367,15 +1449,15 @@ export function Workspace() {
               id="mdpub-dialog-title"
               className="text-sm font-semibold text-amber-300"
             >
-              現在の文書をサンプルで上書きしますか？
+              {md.resetSampleTitle}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              編集中の文書「
+              {md.resetSampleBodyPrefix}
               <strong className="text-white">{effectiveModal.title}</strong>
-              」の本文を初期サンプル Markdown で上書きします。現在の編集内容は失われます。
+              {md.resetSampleBodySuffix}
             </p>
             <p className="mt-1.5 text-[11px] text-slate-400">
-              ※ 他の文書および共通画像（ロゴ・表紙・裏表紙）は維持されます。必要に応じて先にバックアップを保存してください。
+              {md.resetSampleNote}
             </p>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
               <button
@@ -1385,7 +1467,7 @@ export function Workspace() {
                 }
                 className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
               >
-                先に .md を保存
+                {dict.common.saveMdFirst}
               </button>
               <div className="flex items-center gap-2">
                 <button
@@ -1393,7 +1475,7 @@ export function Workspace() {
                   onClick={closeModal}
                   className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
                 >
-                  キャンセル
+                  {dict.common.cancel}
                 </button>
                 <button
                   type="button"
@@ -1404,7 +1486,7 @@ export function Workspace() {
                   }}
                   className="rounded-md bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-500"
                 >
-                  サンプルを復元する
+                  {md.resetSampleConfirm}
                 </button>
               </div>
             </div>
@@ -1417,16 +1499,17 @@ export function Workspace() {
               id="mdpub-dialog-title"
               className="text-sm font-semibold text-red-300"
             >
-              文書を削除しますか？
+              {md.deleteDocTitle}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              「<strong className="text-white">{effectiveModal.doc.title}</strong>」
-              およびこの文書に紐づくインライン画像（{effectiveModal.doc.assetCount}件 /{" "}
-              {formatBytes(effectiveModal.doc.assetsBytes)}）を削除します。
-              この操作は取り消せません。
+              {formatMessage(md.deleteDocBody, {
+                title: effectiveModal.doc.title,
+                count: effectiveModal.doc.assetCount,
+                bytes: formatBytes(effectiveModal.doc.assetsBytes),
+              })}
             </p>
             <p className="mt-1.5 text-[11px] text-slate-400">
-              ※ 「先に .md を保存」には本文とインライン画像が含まれます（ロゴ・表紙等の共通画像は含まれません）。
+              {md.deleteDocNote}
             </p>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
               <button
@@ -1434,7 +1517,7 @@ export function Workspace() {
                 onClick={() => void handleExportDocumentById(effectiveModal.doc.id)}
                 className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
               >
-                先に .md を保存
+                {dict.common.saveMdFirst}
               </button>
               <div className="flex items-center gap-2">
                 <button
@@ -1442,7 +1525,7 @@ export function Workspace() {
                   onClick={closeModal}
                   className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
                 >
-                  キャンセル
+                  {dict.common.cancel}
                 </button>
                 <button
                   type="button"
@@ -1453,7 +1536,7 @@ export function Workspace() {
                   }}
                   className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
                 >
-                  削除する
+                  {md.deleteDocConfirm}
                 </button>
               </div>
             </div>
@@ -1466,15 +1549,16 @@ export function Workspace() {
               id="mdpub-dialog-title"
               className="text-sm font-semibold text-red-300"
             >
-              全ドキュメントを消去・初期化しますか？
+              {md.deleteAllDocsTitle}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              登録されている {effectiveModal.count} 件の文書と独立画像（合計{" "}
-              {formatBytes(effectiveModal.totalBytes)}）を削除し、新しい空の文書 1 件にリセットします。
-              この操作は取り消せません。
+              {formatMessage(md.deleteAllDocsBody, {
+                count: effectiveModal.count,
+                bytes: formatBytes(effectiveModal.totalBytes),
+              })}
             </p>
             <p className="mt-1.5 text-[11px] text-slate-400">
-              ※ UI設定（表示形式など）および共通画像（ロゴ・表紙・裏表紙）は保持されます。
+              {md.deleteAllDocsNote}
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1482,7 +1566,7 @@ export function Workspace() {
                 onClick={closeModal}
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
               >
-                キャンセル
+                {dict.common.cancel}
               </button>
               <button
                 type="button"
@@ -1492,7 +1576,7 @@ export function Workspace() {
                 }}
                 className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
               >
-                消去・初期化する
+                {md.deleteAllDocsConfirm}
               </button>
             </div>
           </div>
@@ -1504,11 +1588,16 @@ export function Workspace() {
               id="mdpub-dialog-title"
               className="text-sm font-semibold text-red-300"
             >
-              共通画像を削除しますか？
+              {md.deleteSharedAssetTitle}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              「<strong className="text-white">{effectiveModal.asset.label}</strong>」を削除します。
-              削除すると、この画像を参照しているすべての文書でロゴ・表紙等が表示されなくなります。
+              {formatMessage(md.deleteSharedAssetBody, {
+                label: effectiveModal.asset.label,
+                bytes: formatBytes(effectiveModal.asset.bytes),
+              })}
+            </p>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              {md.deleteSharedAssetNote}
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1516,7 +1605,7 @@ export function Workspace() {
                 onClick={closeModal}
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
               >
-                キャンセル
+                {dict.common.cancel}
               </button>
               <button
                 type="button"
@@ -1527,7 +1616,7 @@ export function Workspace() {
                 }}
                 className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
               >
-                削除する
+                {dict.common.delete}
               </button>
             </div>
           </div>
@@ -1539,11 +1628,15 @@ export function Workspace() {
               id="mdpub-dialog-title"
               className="text-sm font-semibold text-red-300"
             >
-              すべての共通画像を削除しますか？
+              {md.deleteAllSharedAssetsTitle}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              登録されている {effectiveModal.count} 件の共通画像（ロゴ・表紙・裏表紙）をすべて削除します。
-              この操作は取り消せません。
+              {formatMessage(md.deleteAllSharedAssetsBody, {
+                count: effectiveModal.count,
+              })}
+            </p>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              {md.deleteAllSharedAssetsNote}
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1551,7 +1644,7 @@ export function Workspace() {
                 onClick={closeModal}
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
               >
-                キャンセル
+                {dict.common.cancel}
               </button>
               <button
                 type="button"
@@ -1561,12 +1654,13 @@ export function Workspace() {
                 }}
                 className="rounded-md bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500"
               >
-                消去・初期化する
+                {md.deleteAllConfirm}
               </button>
             </div>
           </div>
         )}
       </dialog>
-    </div>
+      </div>
+    </I18nProvider>
   );
 }

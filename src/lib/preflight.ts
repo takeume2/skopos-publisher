@@ -1,4 +1,5 @@
 import { parseMarkdownDocument } from "./frontmatter";
+import { formatMessage, getDictionary, type Locale } from "./i18n";
 import {
   extractUnresolvedAssetRefs,
   isAssetKeyResolved,
@@ -38,16 +39,20 @@ export interface PreflightReport {
 
 export interface PreflightOptions {
   ngWords?: string | string[];
+  locale?: Locale;
 }
 
 const DEFAULT_UNTITLED_TITLES = new Set([
   "無題のドキュメント",
   "新規ドキュメント",
+  "Untitled Document",
+  "New Document",
 ]);
 
 const SAMPLE_PLACEHOLDER_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /株式会社サンプル/g, label: "株式会社サンプル" },
   { pattern: /Sample Technology Inc\./gi, label: "Sample Technology Inc." },
+  { pattern: /Sample Enterprise Ltd\./gi, label: "Sample Enterprise Ltd." },
 ];
 
 const INCOMPLETE_ASCII_REGEX =
@@ -280,9 +285,14 @@ function resolveAssetStatus(
 
 export function buildPreflightSummary(
   frontmatter: DocumentFrontmatter,
-  assets: Record<string, string>
+  assets: Record<string, string>,
+  locale: Locale = "ja"
 ): PreflightSummary {
-  const orientationLabel = frontmatter.orientation === "landscape" ? "横" : "縦";
+  const pf = getDictionary(locale).preflight;
+  const orientationLabel =
+    frontmatter.orientation === "landscape"
+      ? pf.orientationLandscape
+      : pf.orientationPortrait;
   const confidentialLabel =
     frontmatter.confidential_mode !== "none"
       ? frontmatter.confidential_label.trim() || "CONFIDENTIAL"
@@ -309,8 +319,10 @@ export function runPreflightCheck(
   assets: Record<string, string>,
   options: PreflightOptions = {}
 ): PreflightReport {
+  const locale = options.locale ?? "ja";
+  const pf = getDictionary(locale).preflight;
   const { frontmatter } = parseMarkdownDocument(markdown);
-  const summary = buildPreflightSummary(frontmatter, assets);
+  const summary = buildPreflightSummary(frontmatter, assets, locale);
   const issues: PreflightIssue[] = [];
   const { lines, frontmatterFieldLines } = collectScannableLines(markdown);
 
@@ -325,10 +337,10 @@ export function runPreflightCheck(
   if (!normalizedTitle || DEFAULT_UNTITLED_TITLES.has(normalizedTitle)) {
     pushIssue({
       category: "metadata",
-      label: "タイトル未設定",
+      label: pf.titleUnsetLabel,
       message: !normalizedTitle
-        ? "文書タイトル（title）が空です。"
-        : `文書タイトルが初期値（${normalizedTitle}）のままです。`,
+        ? pf.titleEmptyMessage
+        : formatMessage(pf.titleDefaultMessage, { title: normalizedTitle }),
       line: frontmatterFieldLines.get("title") ?? 1,
     });
   }
@@ -337,16 +349,16 @@ export function runPreflightCheck(
     if (!frontmatter.author.trim()) {
       pushIssue({
         category: "metadata",
-        label: "作成者未設定",
-        message: "表紙が有効ですが「作成者（author）」が空です。",
+        label: pf.authorUnsetLabel,
+        message: pf.authorEmptyMessage,
         line: frontmatterFieldLines.get("author") ?? 1,
       });
     }
     if (!frontmatter.date.trim()) {
       pushIssue({
         category: "metadata",
-        label: "日付未設定",
-        message: "表紙が有効ですが「日付（date）」が空です。",
+        label: pf.dateUnsetLabel,
+        message: pf.dateEmptyMessage,
         line: frontmatterFieldLines.get("date") ?? 1,
       });
     }
@@ -355,19 +367,24 @@ export function runPreflightCheck(
   // 2. Unresolved frontmatter assets (logo / cover_image / back_cover_image)
   const frontmatterUnresolved = extractUnresolvedAssetRefs(markdown, assets, {
     includeFrontmatter: true,
+    locale,
   }).filter((ref) => ref.source === "frontmatter");
 
   for (const ref of frontmatterUnresolved) {
     const fieldName =
-      ref.alt === "ロゴ画像"
+      ref.alt === pf.frontmatterLogo
         ? "logo"
-        : ref.alt === "表紙の背景画像"
+        : ref.alt === pf.frontmatterCoverImage
           ? "cover_image"
           : "back_cover_image";
+    const resolvedLabel = ref.alt || pf.assetConfigFallback;
     pushIssue({
       category: "unresolved-asset",
-      label: ref.alt || "設定画像",
-      message: `${ref.alt || "設定画像"} に指定された画像（${ref.displayName}）が未登録です。`,
+      label: resolvedLabel,
+      message: formatMessage(pf.assetMissingMessage, {
+        label: resolvedLabel,
+        name: ref.displayName,
+      }),
       line: frontmatterFieldLines.get(fieldName) ?? 1,
     });
   }
@@ -395,7 +412,7 @@ export function runPreflightCheck(
       pushIssue({
         category: "incomplete",
         label: token,
-        message: `未記入・仮表現「${token}」が残っています。`,
+        message: formatMessage(pf.incompleteMessage, { token }),
         line: entry.lineNumber,
         snippet: buildSnippet(entry.rawLine),
       });
@@ -412,8 +429,10 @@ export function runPreflightCheck(
         sampleCount += 1;
         pushIssue({
           category: "metadata",
-          label: "サンプル仮値",
-          message: `サンプル文書の仮値「${sample.label}」が残っています。`,
+          label: pf.samplePlaceholderLabel,
+          message: formatMessage(pf.samplePlaceholderMessage, {
+            label: sample.label,
+          }),
           line: entry.lineNumber,
           snippet: buildSnippet(entry.rawLine),
         });
@@ -435,7 +454,7 @@ export function runPreflightCheck(
           pushIssue({
             category: "ng-word",
             label: word,
-            message: `NG ワード「${word}」が含まれています。`,
+            message: formatMessage(pf.ngWordMessage, { word }),
             line: entry.lineNumber,
             snippet: buildSnippet(entry.rawLine),
           });

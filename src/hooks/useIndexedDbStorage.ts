@@ -4,8 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { delMany, get, getMany, keys, set, setMany } from "idb-keyval";
 import { DEFAULT_FILENAME_TEMPLATE } from "@/lib/export-filename";
 import { parseMarkdownDocument } from "@/lib/frontmatter";
+import {
+  detectBrowserLocale,
+  getDictionary,
+  isLocale,
+  type Locale,
+} from "@/lib/i18n";
 import { resolveAssetSrc } from "@/lib/markdown";
-import { SAMPLE_MARKDOWN } from "@/lib/sample-markdown";
+import { getSampleMarkdown } from "@/lib/sample-markdown";
 
 const KEY_PREFIX_DOC = "mdpub:doc:";
 const KEY_PREFIX_DOC_ASSET = "mdpub:doc_asset:";
@@ -29,17 +35,11 @@ export function isSharedAssetId(assetId: string): boolean {
   return SHARED_ASSET_IDS.has(assetId) || assetId.startsWith("asset:shared_");
 }
 
-const SHARED_ASSET_LABELS: Record<string, string> = {
-  "asset:logo_1": "ロゴ画像",
-  "asset:cover_bg_1": "表紙背景画像",
-  "asset:backcover_bg_1": "裏表紙背景画像",
-  "asset:back_cover_bg_1": "裏表紙背景画像",
-};
-
 export type SaveStatus = "saved" | "saving" | "loading";
 export type LayoutMode = "single" | "spread";
 
 export interface UiPreferences {
+  locale: Locale;
   autoUpdate: boolean;
   showMarginGuides: boolean;
   layoutMode: LayoutMode;
@@ -76,6 +76,7 @@ export interface SharedAssetSummary {
 }
 
 const DEFAULT_PREFS: UiPreferences = {
+  locale: "ja",
   autoUpdate: true,
   showMarginGuides: false,
   layoutMode: "single",
@@ -95,15 +96,20 @@ function getByteSize(value: unknown): number {
   return new Blob([str]).size;
 }
 
-function extractTitle(markdown: string): string {
+function extractTitle(markdown: string, locale: Locale = "ja"): string {
   const title = parseMarkdownDocument(markdown).frontmatter.title.trim();
-  return title || "無題のドキュメント";
+  return title || getDictionary(locale).common.untitledDocument;
 }
 
-function buildBlankMarkdown(title = "新規ドキュメント"): string {
+function buildBlankMarkdown(
+  title?: string,
+  locale: Locale = "ja"
+): string {
+  const dict = getDictionary(locale);
+  const resolvedTitle = title ?? dict.common.newDocument;
   const today = new Date().toISOString().slice(0, 10);
   return `---
-title: "${title}"
+title: "${resolvedTitle}"
 subtitle: ""
 author: ""
 recipient: ""
@@ -135,10 +141,31 @@ footer_left: "{author}"
 footer_right: "{page} / {pages}"
 ---
 
-# 1. はじめに
+${dict.storage.blankHeading}
 
-ここに本文を記述します。
+${dict.storage.blankBody}
 `;
+}
+
+function getSharedAssetDefaultLabel(assetId: string, locale: Locale): string {
+  const st = getDictionary(locale).storage;
+  if (assetId === "asset:logo_1" || assetId.startsWith("asset:shared_logo")) {
+    return st.sharedLogoLabel;
+  }
+  if (
+    assetId === "asset:cover_bg_1" ||
+    assetId.startsWith("asset:shared_cover")
+  ) {
+    return st.sharedCoverLabel;
+  }
+  if (
+    assetId === "asset:backcover_bg_1" ||
+    assetId === "asset:back_cover_bg_1" ||
+    assetId.startsWith("asset:shared_backcover")
+  ) {
+    return st.sharedBackCoverLabel;
+  }
+  return st.sharedGenericLabel;
 }
 
 function isQuotaError(err: unknown): boolean {
@@ -203,6 +230,8 @@ export function useIndexedDbStorage() {
   const [sharedAssets, setSharedAssets] = useState<Record<string, string>>({});
   const [sharedMeta, setSharedMeta] = useState<Record<string, string>>({});
   const [prefs, setPrefsState] = useState<UiPreferences>(DEFAULT_PREFS);
+  const localeRef = useRef<Locale>(prefs.locale);
+  localeRef.current = prefs.locale;
   const [isLoaded, setIsLoaded] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -216,9 +245,7 @@ export function useIndexedDbStorage() {
   const handleStorageError = useCallback((err: unknown, context: string) => {
     console.error(`${context}:`, err);
     if (isQuotaError(err)) {
-      setStorageError(
-        "ブラウザの保存容量上限（QuotaExceededError）に達しました。不要な文書や画像を削除するか、「.md保存」でバックアップしてください。"
-      );
+      setStorageError(getDictionary(localeRef.current).storage.quotaExceededError);
     }
   }, []);
 
@@ -260,8 +287,23 @@ export function useIndexedDbStorage() {
 
         if (!active) return;
 
+        const resolvedLocale: Locale =
+          savedPrefs && isLocale(savedPrefs.locale)
+            ? savedPrefs.locale
+            : detectBrowserLocale();
+        localeRef.current = resolvedLocale;
+
         if (savedPrefs && typeof savedPrefs === "object") {
-          setPrefsState({ ...DEFAULT_PREFS, ...savedPrefs });
+          setPrefsState({
+            ...DEFAULT_PREFS,
+            ...savedPrefs,
+            locale: resolvedLocale,
+          });
+        } else {
+          setPrefsState({
+            ...DEFAULT_PREFS,
+            locale: resolvedLocale,
+          });
         }
         if (savedSharedMeta && typeof savedSharedMeta === "object") {
           setSharedMeta(savedSharedMeta);
@@ -299,7 +341,7 @@ export function useIndexedDbStorage() {
           const initialMd =
             typeof legacyMd === "string" && legacyMd.length > 0
               ? legacyMd
-              : SAMPLE_MARKDOWN;
+              : getSampleMarkdown(resolvedLocale);
           const initialId = createDocId();
           const assetSizes: Record<string, number> = {};
 
@@ -327,7 +369,7 @@ export function useIndexedDbStorage() {
 
           const newDoc: StoredDocument = {
             id: initialId,
-            title: extractTitle(initialMd),
+            title: extractTitle(initialMd, resolvedLocale),
             markdown: initialMd,
             updatedAt: Date.now(),
             assetSizes,
@@ -358,10 +400,11 @@ export function useIndexedDbStorage() {
 
           if (Object.keys(loadedDocs).length === 0) {
             const fallbackId = createDocId();
+            const fallbackSample = getSampleMarkdown(resolvedLocale);
             const fallbackDoc: StoredDocument = {
               id: fallbackId,
-              title: extractTitle(SAMPLE_MARKDOWN),
-              markdown: SAMPLE_MARKDOWN,
+              title: extractTitle(fallbackSample, resolvedLocale),
+              markdown: fallbackSample,
               updatedAt: Date.now(),
               assetSizes: {},
             };
@@ -431,7 +474,7 @@ export function useIndexedDbStorage() {
   }, [handleStorageError]);
 
   const activeDocument = documents[activeDocId];
-  const markdown = activeDocument?.markdown ?? SAMPLE_MARKDOWN;
+  const markdown = activeDocument?.markdown ?? getSampleMarkdown(prefs.locale);
 
   const assets = useMemo(
     () => ({ ...sharedAssets, ...activeDocAssets }),
@@ -439,6 +482,7 @@ export function useIndexedDbStorage() {
   );
 
   const documentList: DocumentSummary[] = useMemo(() => {
+    const fallbackTitle = getDictionary(prefs.locale).common.untitledDocument;
     return Object.values(documents)
       .map((doc) => {
         const markdownBytes = getByteSize(doc);
@@ -446,7 +490,7 @@ export function useIndexedDbStorage() {
         const assetsBytes = sizeEntries.reduce((sum, n) => sum + n, 0);
         return {
           id: doc.id,
-          title: doc.title || "無題のドキュメント",
+          title: doc.title || fallbackTitle,
           updatedAt: doc.updatedAt,
           markdownBytes,
           assetsBytes,
@@ -455,31 +499,24 @@ export function useIndexedDbStorage() {
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [documents]);
+  }, [documents, prefs.locale]);
 
   const sharedAssetList: SharedAssetSummary[] = useMemo(() => {
     return Object.entries(sharedAssets).map(([assetId, dataUrl]) => ({
       assetId,
       label:
         sharedMeta[assetId] ||
-        SHARED_ASSET_LABELS[assetId] ||
-        (assetId.startsWith("asset:shared_logo")
-          ? "ロゴ画像"
-          : assetId.startsWith("asset:shared_cover")
-            ? "表紙背景画像"
-            : assetId.startsWith("asset:shared_backcover")
-              ? "裏表紙背景画像"
-              : "共通画像"),
+        getSharedAssetDefaultLabel(assetId, prefs.locale),
       dataUrl,
       bytes: getByteSize(dataUrl),
     }));
-  }, [sharedAssets, sharedMeta]);
+  }, [prefs.locale, sharedAssets, sharedMeta]);
 
   const setMarkdown = useCallback(
     (nextValue: string) => {
       if (!activeDocId) return;
       const now = Date.now();
-      const nextTitle = extractTitle(nextValue);
+      const nextTitle = extractTitle(nextValue, localeRef.current);
 
       let updatedDoc: StoredDocument | null = null;
       setDocuments((prev) => {
@@ -545,11 +582,12 @@ export function useIndexedDbStorage() {
   const createDocument = useCallback(
     async (initialMarkdown?: string) => {
       await flushPendingSave();
+      const currentLocale = localeRef.current;
       const newId = createDocId();
-      const md = initialMarkdown ?? buildBlankMarkdown();
+      const md = initialMarkdown ?? buildBlankMarkdown(undefined, currentLocale);
       const newDoc: StoredDocument = {
         id: newId,
-        title: extractTitle(md),
+        title: extractTitle(md, currentLocale),
         markdown: md,
         updatedAt: Date.now(),
         assetSizes: {},
@@ -747,11 +785,13 @@ export function useIndexedDbStorage() {
         );
 
         if (remainingSorted.length === 0) {
+          const currentLocale = localeRef.current;
           const freshId = createDocId();
+          const freshSample = getSampleMarkdown(currentLocale);
           const freshDoc: StoredDocument = {
             id: freshId,
-            title: extractTitle(SAMPLE_MARKDOWN),
-            markdown: SAMPLE_MARKDOWN,
+            title: extractTitle(freshSample, currentLocale),
+            markdown: freshSample,
             updatedAt: Date.now(),
             assetSizes: {},
           };
@@ -802,11 +842,13 @@ export function useIndexedDbStorage() {
         await delMany(keysToDelete);
       }
 
+      const currentLocale = localeRef.current;
+      const untitledTitle = getDictionary(currentLocale).common.untitledDocument;
       const freshId = createDocId();
       const freshDoc: StoredDocument = {
         id: freshId,
-        title: "無題のドキュメント",
-        markdown: buildBlankMarkdown("無題のドキュメント"),
+        title: untitledTitle,
+        markdown: buildBlankMarkdown(untitledTitle, currentLocale),
         updatedAt: Date.now(),
         assetSizes: {},
       };
@@ -869,7 +911,7 @@ export function useIndexedDbStorage() {
   );
 
   const resetToSample = useCallback(async () => {
-    setMarkdown(SAMPLE_MARKDOWN);
+    setMarkdown(getSampleMarkdown(localeRef.current));
   }, [setMarkdown]);
 
   return {

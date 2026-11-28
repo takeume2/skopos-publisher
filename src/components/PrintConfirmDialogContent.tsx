@@ -1,19 +1,14 @@
 "use client";
 
 import React from "react";
+import type { Locale } from "@/lib/i18n";
 import {
   runPreflightCheck,
   type PreflightCategory,
   type PreflightReport,
 } from "@/lib/preflight";
 import type { UnresolvedAssetRef } from "@/lib/unresolved-assets";
-
-const PREFLIGHT_CATEGORY_LABELS: Record<PreflightCategory, string> = {
-  incomplete: "未記入",
-  "unresolved-asset": "画像",
-  metadata: "メタ情報",
-  "ng-word": "NGワード",
-};
+import { useI18n } from "./I18nProvider";
 
 export interface PrintConfirmEvaluation {
   unresolvedItems: UnresolvedAssetRef[];
@@ -29,11 +24,13 @@ export function evaluatePrintConfirm(params: {
   enablePreflightCheck: boolean;
   preflightNgWords: string;
   skipPrintHeaderFooterNotice: boolean;
+  locale?: Locale;
 }): PrintConfirmEvaluation {
   const showHeaderFooterNotice = !params.skipPrintHeaderFooterNotice;
   const preflightReport = params.enablePreflightCheck
     ? runPreflightCheck(params.markdown, params.assets, {
         ngWords: params.preflightNgWords,
+        locale: params.locale ?? "ja",
       })
     : null;
   const hasPreflightIssues = (preflightReport?.issues.length ?? 0) > 0;
@@ -70,10 +67,21 @@ export function PrintConfirmDialogContent({
   skipPrintNoticeNextTime,
   onChangeSkipPrintNoticeNextTime,
   onJumpToLine,
-  jumpHintText = "※ 項目をクリックするとエディタの該当行へ移動します。",
+  jumpHintText,
   onCancel,
   onConfirm,
 }: PrintConfirmDialogContentProps) {
+  const { dict, format } = useI18n();
+  const pc = dict.printConfirm;
+  const resolvedJumpHint = jumpHintText ?? pc.jumpHintDefault;
+
+  const categoryLabels: Record<PreflightCategory, string> = {
+    incomplete: pc.categoryIncomplete,
+    "unresolved-asset": pc.categoryUnresolvedAsset,
+    metadata: pc.categoryMetadata,
+    "ng-word": pc.categoryNgWord,
+  };
+
   const preflightIssues = preflightReport?.issues ?? [];
   const summary = preflightReport?.summary ?? null;
   const hasWarnings = unresolvedItems.length > 0 || preflightIssues.length > 0;
@@ -82,28 +90,30 @@ export function PrintConfirmDialogContent({
     <div className="p-5">
       {unresolvedItems.length > 0 ? (
         <h2 id={titleId} className="text-sm font-semibold text-amber-300">
-          未解決の画像があります（{unresolvedItems.length}件）
+          {format(pc.titleUnresolved, { count: unresolvedItems.length })}
         </h2>
       ) : preflightIssues.length > 0 ? (
         <h2 id={titleId} className="text-sm font-semibold text-amber-300">
-          出力前プリフライトチェック（{preflightIssues.length}件の確認事項）
+          {format(pc.titlePreflight, { count: preflightIssues.length })}
         </h2>
       ) : (
         <h2 id={titleId} className="text-sm font-semibold text-sky-300">
-          印刷前の確認（ヘッダー／フッター設定）
+          {pc.titleHeaderFooter}
         </h2>
       )}
 
       {summary && (
         <div
-          aria-label="出力設定サマリー"
+          aria-label={pc.summaryAria}
           className="mt-2.5 flex flex-wrap items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-[10px] text-slate-300"
         >
           <span className="rounded bg-slate-800 px-1.5 py-0.5">
-            用紙: {summary.pageLabel}
+            {format(pc.summaryPage, { page: summary.pageLabel })}
           </span>
           <span className="rounded bg-slate-800 px-1.5 py-0.5">
-            表紙: {summary.cover ? "あり" : "なし"}
+            {format(pc.summaryCover, {
+              status: summary.cover ? pc.yes : pc.no,
+            })}
           </span>
           <span
             className={`rounded px-1.5 py-0.5 ${
@@ -112,15 +122,19 @@ export function PrintConfirmDialogContent({
                 : "bg-slate-800"
             }`}
           >
-            ロゴ:{" "}
-            {summary.logoStatus === "configured"
-              ? "あり"
-              : summary.logoStatus === "missing"
-                ? "未登録"
-                : "なし"}
+            {format(pc.summaryLogo, {
+              status:
+                summary.logoStatus === "configured"
+                  ? pc.yes
+                  : summary.logoStatus === "missing"
+                    ? pc.logoMissing
+                    : pc.no,
+            })}
           </span>
           <span className="rounded bg-slate-800 px-1.5 py-0.5">
-            透かし: {summary.confidentialLabel ?? "なし"}
+            {format(pc.summaryWatermark, {
+              status: summary.confidentialLabel ?? pc.none,
+            })}
           </span>
         </div>
       )}
@@ -128,7 +142,7 @@ export function PrintConfirmDialogContent({
       {unresolvedItems.length > 0 && (
         <>
           <p className="mt-2 text-xs leading-relaxed text-slate-300">
-            以下の画像は現在の文書に登録されていません。このまま出力すると、枠・アイコン・文字を消した空欄のまま箱の寸法を保って出力されます（プレビューと PDF のページ数は一致します）。
+            {pc.unresolvedDescription}
           </p>
           <ul className="mt-2.5 max-h-36 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2.5 font-mono text-[11px] text-amber-200">
             {unresolvedItems.map((item) => (
@@ -153,12 +167,12 @@ export function PrintConfirmDialogContent({
         <div className="mt-3">
           {unresolvedItems.length > 0 && (
             <p className="mb-1.5 text-xs font-semibold text-amber-300">
-              プリフライトチェック（{preflightIssues.length}件）
+              {format(pc.preflightSubheading, { count: preflightIssues.length })}
             </p>
           )}
           <ul className="max-h-44 space-y-1.5 overflow-y-auto rounded border border-slate-800 bg-slate-950/70 p-2 text-[11px]">
             {preflightIssues.map((issue) => {
-              const badgeLabel = PREFLIGHT_CATEGORY_LABELS[issue.category];
+              const badgeLabel = categoryLabels[issue.category];
               const badgeTone =
                 issue.category === "ng-word"
                   ? "bg-red-950/80 text-red-300 border-red-800/60"
@@ -194,7 +208,7 @@ export function PrintConfirmDialogContent({
                     <button
                       type="button"
                       onClick={() => onJumpToLine(issue.line!)}
-                      title={`L${issue.line} へ移動して修正する`}
+                      title={format(pc.jumpTooltip, { line: issue.line })}
                       className="w-full rounded px-2 py-1.5 transition hover:bg-slate-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                     >
                       {content}
@@ -206,8 +220,8 @@ export function PrintConfirmDialogContent({
               );
             })}
           </ul>
-          {jumpHintText && (
-            <p className="mt-1 text-[10px] text-slate-400">{jumpHintText}</p>
+          {resolvedJumpHint && (
+            <p className="mt-1 text-[10px] text-slate-400">{resolvedJumpHint}</p>
           )}
         </div>
       )}
@@ -222,7 +236,7 @@ export function PrintConfirmDialogContent({
         >
           {hasWarnings && (
             <p className="text-xs font-semibold text-sky-300">
-              ブラウザ印刷設定の確認
+              {pc.browserSettingsHeading}
             </p>
           )}
           <p
@@ -230,7 +244,7 @@ export function PrintConfirmDialogContent({
               hasWarnings ? "mt-1" : ""
             } text-xs leading-relaxed text-slate-300`}
           >
-            ブラウザ印刷の「ヘッダーとフッター」が有効なままだと、社内 URL や印刷日時が PDF の上下余白に印字される恐れがあります。
+            {pc.browserSettingsDescription}
           </p>
           <ul className="mt-2.5 space-y-1.5 rounded-md border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] leading-relaxed text-slate-200">
             <li className="flex items-start gap-2">
@@ -238,11 +252,11 @@ export function PrintConfirmDialogContent({
                 •
               </span>
               <span>
-                詳細設定 → オプションの{" "}
+                {pc.headerFooterTipPrefix}
                 <strong className="text-white">
-                  「ヘッダーとフッター」をオフ
-                </strong>{" "}
-                にしてください
+                  {pc.headerFooterTipStrong}
+                </strong>
+                {pc.headerFooterTipSuffix}
               </span>
             </li>
             <li className="flex items-start gap-2">
@@ -251,9 +265,9 @@ export function PrintConfirmDialogContent({
               </span>
               <span>
                 <strong className="text-white">
-                  「背景のグラフィック」はオン
-                </strong>{" "}
-                を推奨（表紙・色帯の出力に必要）
+                  {pc.backgroundGraphicsStrong}
+                </strong>
+                {pc.backgroundGraphicsSuffix}
               </span>
             </li>
           </ul>
@@ -264,7 +278,7 @@ export function PrintConfirmDialogContent({
               onChange={(e) => onChangeSkipPrintNoticeNextTime(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             />
-            <span>次回からこの注意喚起を表示しない</span>
+            <span>{pc.skipNoticeCheckbox}</span>
           </label>
         </div>
       )}
@@ -275,7 +289,7 @@ export function PrintConfirmDialogContent({
           onClick={onCancel}
           className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-800"
         >
-          キャンセル
+          {dict.common.cancel}
         </button>
         <button
           type="button"
@@ -286,7 +300,7 @@ export function PrintConfirmDialogContent({
               : "bg-sky-600 hover:bg-sky-500"
           }`}
         >
-          {hasWarnings ? "このまま出力" : "印刷ダイアログを開く"}
+          {hasWarnings ? pc.confirmWithWarnings : pc.confirmNormal}
         </button>
       </div>
     </div>

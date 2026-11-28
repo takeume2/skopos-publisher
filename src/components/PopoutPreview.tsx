@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { loadMergedAssetsForDoc } from "@/hooks/useIndexedDbStorage";
 import { parseMarkdownDocument } from "@/lib/frontmatter";
+import { formatMessage, getDictionary, type Locale } from "@/lib/i18n";
 import type { PreflightReport } from "@/lib/preflight";
 import {
   createPreviewSyncChannel,
@@ -29,6 +30,7 @@ import {
   extractUnresolvedAssetRefs,
   type UnresolvedAssetRef,
 } from "@/lib/unresolved-assets";
+import { I18nProvider } from "./I18nProvider";
 import {
   PagedPreviewPane,
   type PagedPreviewPaneHandle,
@@ -69,6 +71,7 @@ const DEFAULT_SYNCED_PREFS: ResolvedSyncedPrefs = {
   autoUpdate: true,
   showMarginGuides: false,
   layoutMode: "single",
+  locale: "ja",
   skipPrintHeaderFooterNotice: false,
   enablePreflightCheck: true,
   preflightNgWords: "",
@@ -82,6 +85,7 @@ function resolveSyncedPrefs(prefs: SyncedPreviewPrefs): ResolvedSyncedPrefs {
     autoUpdate: prefs.autoUpdate,
     showMarginGuides: prefs.showMarginGuides,
     layoutMode: prefs.layoutMode,
+    locale: prefs.locale ?? DEFAULT_SYNCED_PREFS.locale,
     skipPrintHeaderFooterNotice:
       prefs.skipPrintHeaderFooterNotice ??
       DEFAULT_SYNCED_PREFS.skipPrintHeaderFooterNotice,
@@ -127,6 +131,10 @@ export function PopoutPreview({
   const isMountedRef = useRef<boolean>(true);
   const isPreparingPrintRef = useRef<boolean>(false);
   const previousTitleRef = useRef<string | null>(null);
+
+  const activeLocale: Locale = docState?.prefs.locale ?? DEFAULT_SYNCED_PREFS.locale;
+  const dict = useMemo(() => getDictionary(activeLocale), [activeLocale]);
+  const po = dict.popout;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -206,9 +214,9 @@ export function PopoutPreview({
       ?.replace(/\\n|\r?\n/g, " ")
       .trim();
     return docTitle
-      ? `[プレビュー] ${docTitle}`
-      : "[プレビュー] Skopos Publisher";
-  }, [parsed?.frontmatter.title]);
+      ? formatMessage(po.windowTitleWithDoc, { title: docTitle })
+      : po.windowTitleDefault;
+  }, [parsed?.frontmatter.title, po.windowTitleDefault, po.windowTitleWithDoc]);
 
   const exportBasenameRef = useRef<string>("document");
   exportBasenameRef.current = docState?.exportBasename || "document";
@@ -428,12 +436,13 @@ export function PopoutPreview({
           if (res.ok) {
             runWindowPrint();
           } else if (!res.cancelled) {
+            const errLocale =
+              latestDocStateRef.current?.prefs.locale ?? DEFAULT_SYNCED_PREFS.locale;
+            const errPo = getDictionary(errLocale).popout;
             setModalState({
               kind: "notice",
-              title: "PDF出力エラー",
-              message:
-                res.error ||
-                "組版レンダリングに失敗したため、PDF出力を開始できませんでした。",
+              title: errPo.printErrorTitle,
+              message: res.error || errPo.printErrorFallback,
             });
           }
         })
@@ -465,6 +474,7 @@ export function PopoutPreview({
       enablePreflightCheck: currentDoc.prefs.enablePreflightCheck,
       preflightNgWords: currentDoc.prefs.preflightNgWords,
       skipPrintHeaderFooterNotice: currentDoc.prefs.skipPrintHeaderFooterNotice,
+      locale: currentDoc.prefs.locale,
     });
 
     if (evaluation.shouldShowDialog) {
@@ -539,211 +549,215 @@ export function PopoutPreview({
 
   if (connectionState === "unsupported") {
     return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-slate-950 p-6 text-center text-slate-200">
-        <p className="text-sm font-semibold text-white">
-          別ウィンドウプレビューを初期化できませんでした
-        </p>
-        <p className="max-w-md text-xs leading-relaxed text-slate-400">
-          メインのエディタ画面のプレビューツールバーにある「別ウィンドウ」ボタンから開いてください（BroadcastChannel 対応ブラウザが必要です）。
-        </p>
-        <button
-          type="button"
-          onClick={() => window.close()}
-          className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500"
-        >
-          ウィンドウを閉じる
-        </button>
-      </div>
+      <I18nProvider locale={activeLocale}>
+        <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-slate-950 p-6 text-center text-slate-200">
+          <p className="text-sm font-semibold text-white">
+            {po.unsupportedTitle}
+          </p>
+          <p className="max-w-md text-xs leading-relaxed text-slate-400">
+            {po.unsupportedBody}
+          </p>
+          <button
+            type="button"
+            onClick={() => window.close()}
+            className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500"
+          >
+            {po.closeWindow}
+          </button>
+        </div>
+      </I18nProvider>
     );
   }
 
   if (!docState || !parsed) {
     return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-2 bg-slate-950 p-6 text-slate-300">
-        <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none text-sky-400" />
-        <p className="text-xs">エディタ画面と接続しています...</p>
-      </div>
+      <I18nProvider locale={activeLocale}>
+        <div className="flex h-dvh flex-col items-center justify-center gap-2 bg-slate-950 p-6 text-slate-300">
+          <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none text-sky-400" />
+          <p className="text-xs">{po.connecting}</p>
+        </div>
+      </I18nProvider>
     );
   }
 
   const activePrefs = docState.prefs ?? DEFAULT_SYNCED_PREFS;
 
   return (
-    <div className="print-workspace-shell flex h-dvh flex-col overflow-hidden bg-zinc-800">
-      {connectionState === "disconnected" && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="no-print flex items-center justify-between gap-2 border-b border-amber-500/40 bg-amber-950/85 px-3 py-1.5 text-[11px] text-amber-200"
-        >
-          <div className="flex items-center gap-1.5">
-            <WifiOff className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-            <span>
-              エディタとの接続が切れました（メイン画面の再読込を待機しています...）
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handleDockBack}
-            className="rounded border border-amber-500/40 bg-amber-900/50 px-2 py-0.5 text-[10px] font-medium text-amber-100 hover:bg-amber-900"
+    <I18nProvider locale={activeLocale}>
+      <div className="print-workspace-shell flex h-dvh flex-col overflow-hidden bg-zinc-800">
+        {connectionState === "disconnected" && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="no-print flex items-center justify-between gap-2 border-b border-amber-500/40 bg-amber-950/85 px-3 py-1.5 text-[11px] text-amber-200"
           >
-            閉じる
-          </button>
-        </div>
-      )}
-
-      {connectionState === "connected" && jumpNoticeLine !== null && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="no-print flex items-center justify-between gap-2 border-b border-sky-500/40 bg-sky-950/90 px-3 py-1.5 text-[11px] text-sky-100"
-        >
-          <div className="flex min-w-0 items-center gap-1.5">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-            <span className="truncate">
-              メイン画面のエディタ{" "}
-              <strong className="font-mono tabular-nums text-white">
-                L{jumpNoticeLine}
-              </strong>{" "}
-              へ移動しました
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <WifiOff className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+              <span>{po.disconnectedBanner}</span>
+            </div>
             <button
               type="button"
               onClick={handleDockBack}
-              className="rounded border border-sky-400/50 bg-sky-700/80 px-2 py-0.5 text-[10px] font-semibold text-white transition hover:bg-sky-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+              className="rounded border border-amber-500/40 bg-amber-900/50 px-2 py-0.5 text-[10px] font-medium text-amber-100 hover:bg-amber-900"
             >
-              プレビューを閉じてエディタへ戻る
-            </button>
-            <button
-              type="button"
-              onClick={clearJumpNotice}
-              aria-label="移動通知を閉じる"
-              title="閉じる"
-              className="rounded p-0.5 text-sky-300 transition hover:bg-sky-900/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
-            >
-              <X className="h-3.5 w-3.5" />
+              {dict.common.close}
             </button>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="print-preview-pane min-h-0 flex-1 overflow-hidden">
-        <PagedPreviewPane
-          ref={previewPaneRef}
-          documentId={docState.documentId}
-          markdown={docState.markdown}
-          frontmatter={parsed.frontmatter}
-          assets={assets}
-          autoUpdate={activePrefs.autoUpdate}
-          onToggleAutoUpdate={(val) => handleUpdatePrefs({ autoUpdate: val })}
-          showMarginGuides={activePrefs.showMarginGuides}
-          onToggleMarginGuides={(val) =>
-            handleUpdatePrefs({ showMarginGuides: val })
-          }
-          layoutMode={activePrefs.layoutMode}
-          onLayoutModeChange={(mode) => handleUpdatePrefs({ layoutMode: mode })}
-          unresolvedAssets={unresolvedAssets}
-          headerRightExtra={
-            <>
-              <button
-                type="button"
-                onClick={handlePrint}
-                disabled={isPreparingPrint}
-                aria-busy={isPreparingPrint || undefined}
-                title="このプレビューを PDF 出力 / 印刷"
-                className="inline-flex items-center gap-1 rounded bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-sky-500 disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-              >
-                {isPreparingPrint ? (
-                  <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />
-                ) : (
-                  <Printer className="h-3 w-3" />
-                )}
-                <span>{isPreparingPrint ? "準備中..." : "印刷"}</span>
-              </button>
+        {connectionState === "connected" && jumpNoticeLine !== null && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="no-print flex items-center justify-between gap-2 border-b border-sky-500/40 bg-sky-950/90 px-3 py-1.5 text-[11px] text-sky-100"
+          >
+            <div className="flex min-w-0 items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+              <span className="truncate">
+                {po.jumpNoticePrefix}{" "}
+                <strong className="font-mono tabular-nums text-white">
+                  L{jumpNoticeLine}
+                </strong>{" "}
+                {po.jumpNoticeSuffix}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
               <button
                 type="button"
                 onClick={handleDockBack}
-                title="このウィンドウを閉じてメイン画面へ戻す"
-                className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 transition hover:bg-zinc-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                className="rounded border border-sky-400/50 bg-sky-700/80 px-2 py-0.5 text-[10px] font-semibold text-white transition hover:bg-sky-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
               >
-                <PanelRightClose className="h-3 w-3" />
-                <span className="preview-cq-label">メインへ戻す</span>
+                {po.closeAndReturnEditor}
               </button>
-            </>
-          }
-        />
-      </div>
-
-      <dialog
-        ref={dialogRef}
-        {...({ closedby: "any" } as Record<string, string>)}
-        onClose={closeModal}
-        onClick={(e) => {
-          if (e.target === dialogRef.current) {
-            closeModal();
-          }
-        }}
-        className="mdpub-dialog no-print"
-        aria-labelledby="mdpub-popout-dialog-title"
-      >
-        {modalState?.kind === "notice" && (
-          <div className="p-5">
-            <h2
-              id="mdpub-popout-dialog-title"
-              className="text-sm font-semibold text-white"
-            >
-              {modalState.title}
-            </h2>
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              {modalState.message}
-            </p>
-            <div className="mt-4 flex justify-end">
               <button
                 type="button"
-                onClick={closeModal}
-                className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500"
+                onClick={clearJumpNotice}
+                aria-label={po.dismissJumpNoticeAria}
+                title={dict.common.close}
+                className="rounded p-0.5 text-sky-300 transition hover:bg-sky-900/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
               >
-                閉じる
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
         )}
 
-        {modalState?.kind === "print-confirm" && (
-          <PrintConfirmDialogContent
-            titleId="mdpub-popout-dialog-title"
-            unresolvedItems={modalState.unresolvedItems}
-            preflightReport={modalState.preflightReport}
-            showHeaderFooterNotice={modalState.showHeaderFooterNotice}
-            skipPrintNoticeNextTime={skipPrintNoticeNextTime}
-            onChangeSkipPrintNoticeNextTime={setSkipPrintNoticeNextTime}
-            onJumpToLine={
-              connectionState === "connected"
-                ? handleJumpToPreflightLine
-                : undefined
+        <div className="print-preview-pane min-h-0 flex-1 overflow-hidden">
+          <PagedPreviewPane
+            ref={previewPaneRef}
+            documentId={docState.documentId}
+            markdown={docState.markdown}
+            frontmatter={parsed.frontmatter}
+            assets={assets}
+            autoUpdate={activePrefs.autoUpdate}
+            onToggleAutoUpdate={(val) => handleUpdatePrefs({ autoUpdate: val })}
+            showMarginGuides={activePrefs.showMarginGuides}
+            onToggleMarginGuides={(val) =>
+              handleUpdatePrefs({ showMarginGuides: val })
             }
-            jumpHintText={
-              connectionState === "connected"
-                ? "※ 項目をクリックするとメイン画面のエディタ該当行へ移動します。"
-                : "※ メイン画面と未接続のため、行ジャンプは利用できません。"
+            layoutMode={activePrefs.layoutMode}
+            onLayoutModeChange={(mode) => handleUpdatePrefs({ layoutMode: mode })}
+            unresolvedAssets={unresolvedAssets}
+            headerRightExtra={
+              <>
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  disabled={isPreparingPrint}
+                  aria-busy={isPreparingPrint || undefined}
+                  title={po.printButtonTitle}
+                  className="inline-flex items-center gap-1 rounded bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-sky-500 disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                >
+                  {isPreparingPrint ? (
+                    <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />
+                  ) : (
+                    <Printer className="h-3 w-3" />
+                  )}
+                  <span>{isPreparingPrint ? po.printPreparing : po.printButton}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDockBack}
+                  title={po.dockBackTitle}
+                  className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 transition hover:bg-zinc-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                >
+                  <PanelRightClose className="h-3 w-3" />
+                  <span className="preview-cq-label">{po.dockBackLabel}</span>
+                </button>
+              </>
             }
-            onCancel={closeModal}
-            onConfirm={() => {
-              if (
-                modalState.showHeaderFooterNotice &&
-                skipPrintNoticeNextTime
-              ) {
-                handleUpdatePrefs({ skipPrintHeaderFooterNotice: true });
-              }
-              closeDialogSync();
-              setModalState(null);
-              executePrint();
-            }}
           />
-        )}
-      </dialog>
-    </div>
+        </div>
+
+        <dialog
+          ref={dialogRef}
+          {...({ closedby: "any" } as Record<string, string>)}
+          onClose={closeModal}
+          onClick={(e) => {
+            if (e.target === dialogRef.current) {
+              closeModal();
+            }
+          }}
+          className="mdpub-dialog no-print"
+          aria-labelledby="mdpub-popout-dialog-title"
+        >
+          {modalState?.kind === "notice" && (
+            <div className="p-5">
+              <h2
+                id="mdpub-popout-dialog-title"
+                className="text-sm font-semibold text-white"
+              >
+                {modalState.title}
+              </h2>
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">
+                {modalState.message}
+              </p>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="rounded-md bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-500"
+                >
+                  {dict.common.close}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {modalState?.kind === "print-confirm" && (
+            <PrintConfirmDialogContent
+              titleId="mdpub-popout-dialog-title"
+              unresolvedItems={modalState.unresolvedItems}
+              preflightReport={modalState.preflightReport}
+              showHeaderFooterNotice={modalState.showHeaderFooterNotice}
+              skipPrintNoticeNextTime={skipPrintNoticeNextTime}
+              onChangeSkipPrintNoticeNextTime={setSkipPrintNoticeNextTime}
+              onJumpToLine={
+                connectionState === "connected"
+                  ? handleJumpToPreflightLine
+                  : undefined
+              }
+              jumpHintText={
+                connectionState === "connected"
+                  ? po.jumpHintConnected
+                  : po.jumpHintDisconnected
+              }
+              onCancel={closeModal}
+              onConfirm={() => {
+                if (
+                  modalState.showHeaderFooterNotice &&
+                  skipPrintNoticeNextTime
+                ) {
+                  handleUpdatePrefs({ skipPrintHeaderFooterNotice: true });
+                }
+                closeDialogSync();
+                setModalState(null);
+                executePrint();
+              }}
+            />
+          )}
+        </dialog>
+      </div>
+    </I18nProvider>
   );
 }

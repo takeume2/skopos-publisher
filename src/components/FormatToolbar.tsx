@@ -25,6 +25,7 @@ import {
   Sigma,
   Table,
 } from "lucide-react";
+import { useI18n } from "./I18nProvider";
 
 export interface FormatSnippet {
   label: string;
@@ -51,28 +52,36 @@ export function FormatToolbar({
   isTableColWidthsOpen = false,
   onToggleTableColWidths,
 }: FormatToolbarProps) {
+  const { dict } = useI18n();
+  const ft = dict.formatToolbar;
+
   const buttons: Array<{
+    id: string;
     title: string;
     icon: React.ReactNode;
     snippet: FormatSnippet;
   }> = [
     {
-      title: "見出し H1",
+      id: "h1",
+      title: ft.h1Title,
       icon: <Heading1 className="h-3.5 w-3.5" />,
-      snippet: { label: "H1", before: "# ", placeholder: "見出し1", block: true },
+      snippet: { label: "H1", before: "# ", placeholder: ft.h1Placeholder, block: true },
     },
     {
-      title: "見出し H2",
+      id: "h2",
+      title: ft.h2Title,
       icon: <Heading2 className="h-3.5 w-3.5" />,
-      snippet: { label: "H2", before: "## ", placeholder: "見出し2", block: true },
+      snippet: { label: "H2", before: "## ", placeholder: ft.h2Placeholder, block: true },
     },
     {
-      title: "見出し H3",
+      id: "h3",
+      title: ft.h3Title,
       icon: <Heading3 className="h-3.5 w-3.5" />,
-      snippet: { label: "H3", before: "### ", placeholder: "見出し3", block: true },
+      snippet: { label: "H3", before: "### ", placeholder: ft.h3Placeholder, block: true },
     },
     {
-      title: "見出しハイライト指定 <!-- hl: ... -->",
+      id: "hl",
+      title: ft.highlightTitle,
       icon: <Highlighter className="h-3.5 w-3.5" />,
       snippet: {
         label: "HL",
@@ -82,35 +91,54 @@ export function FormatToolbar({
       },
     },
     {
-      title: "太字",
+      id: "bold",
+      title: ft.boldTitle,
       icon: <Bold className="h-3.5 w-3.5" />,
-      snippet: { label: "太字", before: "**", after: "**", placeholder: "太字テキスト" },
-    },
-    {
-      title: "斜体",
-      icon: <Italic className="h-3.5 w-3.5" />,
-      snippet: { label: "斜体", before: "*", after: "*", placeholder: "斜体テキスト" },
-    },
-    {
-      title: "箇条書きリスト",
-      icon: <List className="h-3.5 w-3.5" />,
-      snippet: { label: "リスト", before: "- ", placeholder: "項目", block: true },
-    },
-    {
-      title: "テーブル雛形",
-      icon: <Table className="h-3.5 w-3.5" />,
       snippet: {
-        label: "テーブル",
-        before:
-          "| 項目 | 内容 | 数値 |\n| :--- | :--- | ---: |\n| サンプル | 値 | 1,000 |\n",
+        label: ft.boldLabel,
+        before: "**",
+        after: "**",
+        placeholder: ft.boldPlaceholder,
+      },
+    },
+    {
+      id: "italic",
+      title: ft.italicTitle,
+      icon: <Italic className="h-3.5 w-3.5" />,
+      snippet: {
+        label: ft.italicLabel,
+        before: "*",
+        after: "*",
+        placeholder: ft.italicPlaceholder,
+      },
+    },
+    {
+      id: "list",
+      title: ft.listTitle,
+      icon: <List className="h-3.5 w-3.5" />,
+      snippet: {
+        label: ft.listLabel,
+        before: "- ",
+        placeholder: ft.listPlaceholder,
         block: true,
       },
     },
     {
-      title: "カラーバー（割合積み上げ棒）<!-- colorbar: ... -->",
+      id: "table",
+      title: ft.tableTitle,
+      icon: <Table className="h-3.5 w-3.5" />,
+      snippet: {
+        label: ft.tableLabel,
+        before: ft.tableSnippet,
+        block: true,
+      },
+    },
+    {
+      id: "colorbar",
+      title: ft.colorbarTitle,
       icon: <BarChartHorizontal className="h-3.5 w-3.5" />,
       snippet: {
-        label: "カラーバー",
+        label: ft.colorbarLabel,
         before: "<!-- colorbar: ",
         after: " -->\n",
         placeholder: "Critical=10, High=20, Medium=30, Low=40",
@@ -118,22 +146,23 @@ export function FormatToolbar({
       },
     },
     {
-      title: "カードブロック（サマリー／KPI）<!-- cards -->",
+      id: "cards",
+      title: ft.cardsTitle,
       icon: <LayoutGrid className="h-3.5 w-3.5" />,
       snippet: {
-        label: "カード",
+        label: ft.cardsLabel,
         before: "<!-- cards -->\n",
         after: "\n<!-- /cards -->\n",
-        placeholder:
-          "- 検出総数 | 42件 | 前回比 -8件\n- Critical | 3件 | 要即時対応 | critical\n- 適合率 | 92.5% | 目標 90%以上 | success",
+        placeholder: ft.cardsPlaceholder,
         block: true,
       },
     },
     {
-      title: "円／ドーナツグラフ <!-- donut: ... -->",
+      id: "chart",
+      title: ft.chartTitle,
       icon: <PieChart className="h-3.5 w-3.5" />,
       snippet: {
-        label: "グラフ",
+        label: ft.chartLabel,
         before: "<!-- donut: ",
         after: " -->\n",
         placeholder: "Critical=10, High=20, Medium=30, Low=40",
@@ -141,60 +170,66 @@ export function FormatToolbar({
       },
     },
     {
-      title: "コールアウト [!NOTE]",
+      id: "note",
+      title: ft.calloutNoteTitle,
       icon: <Info className="h-3.5 w-3.5" />,
       snippet: {
         label: "NOTE",
-        before: "> [!NOTE] ノート\n> ",
-        placeholder: "補足事項を記述します。",
+        before: ft.calloutNoteBefore,
+        placeholder: ft.calloutNotePlaceholder,
         block: true,
       },
     },
     {
-      title: "コールアウト [!WARNING]",
+      id: "warning",
+      title: ft.calloutWarningTitle,
       icon: <AlertTriangle className="h-3.5 w-3.5" />,
       snippet: {
         label: "WARNING",
-        before: "> [!WARNING] ワーニング\n> ",
-        placeholder: "注意事項を記述します。",
+        before: ft.calloutWarningBefore,
+        placeholder: ft.calloutWarningPlaceholder,
         block: true,
       },
     },
     {
-      title: "コールアウト [!CAUTION]",
+      id: "caution",
+      title: ft.calloutCautionTitle,
       icon: <OctagonAlert className="h-3.5 w-3.5" />,
       snippet: {
         label: "CAUTION",
-        before: "> [!CAUTION] コーション\n> ",
-        placeholder: "重大なリスクや禁止事項を記述します。",
+        before: ft.calloutCautionBefore,
+        placeholder: ft.calloutCautionPlaceholder,
         block: true,
       },
     },
     {
-      title: "コールアウト [!SUMMARY]",
+      id: "summary",
+      title: ft.calloutSummaryTitle,
       icon: <ClipboardList className="h-3.5 w-3.5" />,
       snippet: {
         label: "SUMMARY",
-        before: "> [!SUMMARY] サマリー\n> ",
-        placeholder: "セクションの要点を記述します。",
+        before: ft.calloutSummaryBefore,
+        placeholder: ft.calloutSummaryPlaceholder,
         block: true,
       },
     },
     {
-      title: "コールアウト [!SUCCESS]",
+      id: "success",
+      title: ft.calloutSuccessTitle,
       icon: <CheckCircle2 className="h-3.5 w-3.5" />,
       snippet: {
         label: "SUCCESS",
-        before: "> [!SUCCESS] サクセス\n> ",
-        placeholder: "適合・達成した基準や確認結果を記述します。",
+        before: ft.calloutSuccessBefore,
+        placeholder: ft.calloutSuccessPlaceholder,
         block: true,
       },
     },
     {
-      title: "数式ブロック $$",
+      id: "math",
+      title: ft.mathTitle,
       icon: <Sigma className="h-3.5 w-3.5" />,
       snippet: {
-        label: "数式",
+        label: ft.mathLabel,
         before: "$$\n",
         after: "\n$$",
         placeholder: "E = mc^2",
@@ -202,10 +237,11 @@ export function FormatToolbar({
       },
     },
     {
-      title: "コードブロック",
+      id: "code",
+      title: ft.codeTitle,
       icon: <Code2 className="h-3.5 w-3.5" />,
       snippet: {
-        label: "コード",
+        label: ft.codeLabel,
         before: "```ts:src/example.ts\n",
         after: "\n```",
         placeholder: "console.log('hello');",
@@ -218,7 +254,7 @@ export function FormatToolbar({
     <div className="flex flex-wrap items-center gap-1 border-b border-slate-800 bg-slate-900 px-2.5 py-1.5">
       {buttons.map((btn) => (
         <button
-          key={btn.title}
+          key={btn.id}
           type="button"
           title={btn.title}
           onClick={() => onInsert(btn.snippet)}
@@ -231,7 +267,7 @@ export function FormatToolbar({
       {onImageUploadClick && (
         <button
           type="button"
-          title="画像を挿入"
+          title={ft.insertImageTitle}
           onClick={onImageUploadClick}
           className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
@@ -245,9 +281,7 @@ export function FormatToolbar({
           disabled={!isTableActive}
           aria-expanded={isTableColWidthsOpen}
           title={
-            isTableActive
-              ? "テーブルの列幅を調整 (<!-- col-widths: ... -->)"
-              : "テーブル内にカーソルを置くと列幅を調整できます"
+            isTableActive ? ft.colWidthsActiveTitle : ft.colWidthsInactiveTitle
           }
           onClick={onToggleTableColWidths}
           className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -259,35 +293,35 @@ export function FormatToolbar({
           }`}
         >
           <Columns3 className="h-3.5 w-3.5" />
-          <span>列幅</span>
+          <span>{ft.colWidthsButton}</span>
         </button>
       )}
 
       <div className="ml-auto flex items-center gap-1">
         <button
           type="button"
-          title="中扉挿入 (<!-- chapter -->)"
+          title={ft.chapterTitle}
           onClick={() =>
             onInsert({
-              label: "中扉",
+              label: ft.chapterLabel,
               before: "\n<!-- chapter -->\n# ",
-              placeholder: "第1章 タイトル",
-              after: "\nこの章の概要文やサブタイトルを記述します。\n<!-- /chapter -->\n",
+              placeholder: ft.chapterPlaceholder,
+              after: ft.chapterAfter,
               block: true,
             })
           }
           className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-500/10 px-2 py-1 text-xs font-medium text-indigo-300 transition hover:bg-indigo-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <BookMarked className="h-3.5 w-3.5" />
-          <span>中扉</span>
+          <span>{ft.chapterLabel}</span>
         </button>
 
         <button
           type="button"
-          title="改ページ挿入 (<!-- pagebreak -->)"
+          title={ft.pagebreakTitle}
           onClick={() =>
             onInsert({
-              label: "改ページ",
+              label: ft.pagebreakLabel,
               before: "\n<!-- pagebreak -->\n",
               block: true,
             })
@@ -295,7 +329,7 @@ export function FormatToolbar({
           className="inline-flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <FilePlus2 className="h-3.5 w-3.5" />
-          <span>改ページ</span>
+          <span>{ft.pagebreakLabel}</span>
         </button>
       </div>
     </div>
