@@ -150,6 +150,50 @@ function isQuotaError(err: unknown): boolean {
   );
 }
 
+/**
+ * Loads merged shared assets and document-specific assets for a given document ID
+ * directly from IndexedDB. Used by the detached `/preview` window.
+ */
+export async function loadMergedAssetsForDoc(
+  docId: string
+): Promise<Record<string, string>> {
+  const allKeys = await keys();
+  const sharedKeys = allKeys.filter(
+    (k): k is string =>
+      typeof k === "string" && k.startsWith(KEY_PREFIX_SHARED_ASSET)
+  );
+  const docPrefix = docId ? `${KEY_PREFIX_DOC_ASSET}${docId}:` : "";
+  const docKeys = docPrefix
+    ? allKeys.filter(
+        (k): k is string => typeof k === "string" && k.startsWith(docPrefix)
+      )
+    : [];
+
+  const result: Record<string, string> = {};
+
+  if (sharedKeys.length > 0) {
+    const sharedVals = await getMany<string>(sharedKeys);
+    sharedKeys.forEach((key, idx) => {
+      const val = sharedVals[idx];
+      if (typeof val === "string") {
+        result[key.slice(KEY_PREFIX_SHARED_ASSET.length)] = val;
+      }
+    });
+  }
+
+  if (docKeys.length > 0) {
+    const docVals = await getMany<string>(docKeys);
+    docKeys.forEach((key, idx) => {
+      const val = docVals[idx];
+      if (typeof val === "string") {
+        result[key.slice(docPrefix.length)] = val;
+      }
+    });
+  }
+
+  return result;
+}
+
 export function useIndexedDbStorage() {
   const [documents, setDocuments] = useState<Record<string, StoredDocument>>({});
   const [activeDocId, setActiveDocId] = useState<string>("");

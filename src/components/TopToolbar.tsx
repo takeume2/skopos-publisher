@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Columns2,
   Download,
+  ExternalLink,
   Eye,
   FileCode2,
   FolderOpen,
@@ -23,6 +24,9 @@ interface TopToolbarProps {
   saveStatus: SaveStatus;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  isPreviewPoppedOut?: boolean;
+  onFocusPopoutPreview?: () => void;
+  onDockPopoutPreview?: () => void;
   onImportMarkdown: (content: string, filename?: string) => void;
   onImportFolder: (files: FileList) => void;
   onExportMarkdown: () => void;
@@ -42,6 +46,9 @@ export function TopToolbar({
   saveStatus,
   viewMode,
   onViewModeChange,
+  isPreviewPoppedOut = false,
+  onFocusPopoutPreview,
+  onDockPopoutPreview,
   onImportMarkdown,
   onImportFolder,
   onExportMarkdown,
@@ -151,10 +158,10 @@ export function TopToolbar({
           </button>
           <button
             type="button"
-            aria-pressed={viewMode === "preview"}
+            aria-pressed={viewMode === "preview" && !isPreviewPoppedOut}
             onClick={() => onViewModeChange("preview")}
             className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition ${FOCUS_RING} ${
-              viewMode === "preview"
+              viewMode === "preview" && !isPreviewPoppedOut
                 ? "bg-slate-800 text-white"
                 : "text-slate-400 hover:text-slate-200"
             }`}
@@ -163,6 +170,36 @@ export function TopToolbar({
             <span className="hidden md:inline">プレビューのみ</span>
           </button>
         </div>
+
+        {isPreviewPoppedOut && (
+          <div
+            role="status"
+            className="inline-flex items-center gap-1 rounded-md border border-sky-500/50 bg-sky-500/15 px-2 py-1 text-[11px] text-sky-200"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0 text-sky-400" />
+            <span className="hidden lg:inline">別ウィンドウ表示中</span>
+            {onFocusPopoutPreview && (
+              <button
+                type="button"
+                onClick={onFocusPopoutPreview}
+                title="プレビューウィンドウを前面に表示"
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-sky-200 transition hover:bg-sky-500/25 hover:text-white ${FOCUS_RING}`}
+              >
+                前面へ
+              </button>
+            )}
+            {onDockPopoutPreview && (
+              <button
+                type="button"
+                onClick={onDockPopoutPreview}
+                title="プレビューをメイン画面へ戻す"
+                className={`rounded bg-sky-600/40 px-1.5 py-0.5 text-[10px] font-semibold text-white transition hover:bg-sky-600/70 ${FOCUS_RING}`}
+              >
+                戻す
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

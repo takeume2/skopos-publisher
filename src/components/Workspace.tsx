@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink } from "lucide-react";
 import {
   DocumentSummary,
   SharedAssetSummary,
@@ -34,6 +35,14 @@ import {
   type PreflightCategory,
   type PreflightReport,
 } from "@/lib/preflight";
+import {
+  buildPreviewPopoutUrl,
+  createPreviewSyncChannel,
+  getOrCreatePreviewSessionId,
+  parsePreviewSyncMessage,
+  type PreviewSyncMessage,
+  type SyncedPreviewPrefs,
+} from "@/lib/preview-sync";
 import type { DocumentFrontmatter } from "@/types/document";
 import { DocumentSettingsDrawer } from "./DocumentSettingsDrawer";
 import { DocumentSidebar, SharedAssetRole } from "./DocumentSidebar";
@@ -136,6 +145,7 @@ export function Workspace() {
   const [isPreparingPrint, setIsPreparingPrint] = useState<boolean>(false);
   const [skipPrintNoticeNextTime, setSkipPrintNoticeNextTime] =
     useState<boolean>(false);
+  const [isPreviewPoppedOut, setIsPreviewPoppedOut] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -147,8 +157,16 @@ export function Workspace() {
   const isMountedRef = useRef<boolean>(true);
   const jumpRequestSeqRef = useRef<number>(0);
   const restoreNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousViewModeRef = useRef<ViewMode>("split");
+  const popupWindowRef = useRef<Window | null>(null);
+  const previewSessionIdRef = useRef<string | null>(null);
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const assetsVersionRef = useRef<number>(0);
+  const lastAssetsRef = useRef<Record<string, string>>(assets);
+  const isPreviewPoppedOutRef = useRef<boolean>(isPreviewPoppedOut);
+  isPreviewPoppedOutRef.current = isPreviewPoppedOut;
 
-  const isPreviewHidden = viewMode === "editor";
+  const isPreviewHidden = viewMode === "editor" || isPreviewPoppedOut;
   const isPreviewHiddenRef = useRef<boolean>(isPreviewHidden);
   isPreviewHiddenRef.current = isPreviewHidden;
 
@@ -239,6 +257,248 @@ export function Workspace() {
 
   const printTitleRef = useRef<string>(exportBasename);
   printTitleRef.current = exportBasename;
+
+  const latestSyncPayloadRef = useRef<{
+    documentId: string;
+    markdown: string;
+    exportBasename: string;
+    prefs: SyncedPreviewPrefs;
+  }>({
+    documentId: activeDocId,
+    markdown,
+    exportBasename,
+    prefs: {
+      autoUpdate: prefs.autoUpdate,
+      showMarginGuides: prefs.showMarginGuides,
+      layoutMode: prefs.layoutMode,
+    },
+  });
+  latestSyncPayloadRef.current = {
+    documentId: activeDocId,
+    markdown,
+    exportBasename,
+    prefs: {
+      autoUpdate: prefs.autoUpdate,
+      showMarginGuides: prefs.showMarginGuides,
+      layoutMode: prefs.layoutMode,
+    },
+  };
+
+  const updatePrefsRef = useRef(updatePrefs);
+  updatePrefsRef.current = updatePrefs;
+
+  const postPreviewMessage = useCallback((message: PreviewSyncMessage) => {
+    try {
+      syncChannelRef.current?.postMessage(message);
+    } catch {
+      // Ignore BroadcastChannel posting errors if already closed
+    }
+  }, []);
+
+  const postCurrentSyncState = useCallback(() => {
+    const sessionId = previewSessionIdRef.current;
+    if (!sessionId) return;
+    const latest = latestSyncPayloadRef.current;
+    postPreviewMessage({
+      type: "sync-state",
+      sessionId,
+      documentId: latest.documentId,
+      markdown: latest.markdown,
+      exportBasename: latest.exportBasename,
+      prefs: latest.prefs,
+      assetsVersion: assetsVersionRef.current,
+    });
+  }, [postPreviewMessage]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const sessionId = getOrCreatePreviewSessionId();
+    previewSessionIdRef.current = sessionId;
+
+    const channel = createPreviewSyncChannel();
+    syncChannelRef.current = channel;
+
+    const handleChannelMessage = (event: MessageEvent) => {
+      const msg = parsePreviewSyncMessage(event.data, sessionId);
+      if (!msg) return;
+
+      if (msg.type === "preview-ready") {
+        setIsPreviewPoppedOut(true);
+        postCurrentSyncState();
+        return;
+      }
+
+      if (msg.type === "preview-closed") {
+        popupWindowRef.current = null;
+        if (isPreviewPoppedOutRef.current) {
+          setIsPreviewPoppedOut(false);
+          setViewMode(previousViewModeRef.current);
+        }
+        return;
+      }
+
+      if (msg.type === "update-prefs") {
+        const currentPrefs = latestSyncPayloadRef.current.prefs;
+        const diff: Partial<SyncedPreviewPrefs> = {};
+        if (
+          typeof msg.patch.autoUpdate === "boolean" &&
+          msg.patch.autoUpdate !== currentPrefs.autoUpdate
+        ) {
+          diff.autoUpdate = msg.patch.autoUpdate;
+        }
+        if (
+          typeof msg.patch.showMarginGuides === "boolean" &&
+          msg.patch.showMarginGuides !== currentPrefs.showMarginGuides
+        ) {
+          diff.showMarginGuides = msg.patch.showMarginGuides;
+        }
+        if (
+          msg.patch.layoutMode &&
+          msg.patch.layoutMode !== currentPrefs.layoutMode
+        ) {
+          diff.layoutMode = msg.patch.layoutMode;
+        }
+        if (Object.keys(diff).length > 0) {
+          void updatePrefsRef.current(diff);
+        }
+      }
+    };
+
+    channel?.addEventListener("message", handleChannelMessage);
+    postPreviewMessage({ type: "parent-hello", sessionId });
+
+    const notifyParentDisconnected = () => {
+      postPreviewMessage({ type: "parent-disconnected", sessionId });
+    };
+    window.addEventListener("pagehide", notifyParentDisconnected);
+    window.addEventListener("beforeunload", notifyParentDisconnected);
+
+    return () => {
+      window.removeEventListener("pagehide", notifyParentDisconnected);
+      window.removeEventListener("beforeunload", notifyParentDisconnected);
+      notifyParentDisconnected();
+      channel?.removeEventListener("message", handleChannelMessage);
+      channel?.close();
+      if (syncChannelRef.current === channel) {
+        syncChannelRef.current = null;
+      }
+    };
+  }, [isLoaded, postCurrentSyncState, postPreviewMessage]);
+
+  useEffect(() => {
+    if (!isPreviewPoppedOut) return;
+    postCurrentSyncState();
+  }, [
+    isPreviewPoppedOut,
+    activeDocId,
+    markdown,
+    exportBasename,
+    prefs.autoUpdate,
+    prefs.showMarginGuides,
+    prefs.layoutMode,
+    postCurrentSyncState,
+  ]);
+
+  useEffect(() => {
+    if (lastAssetsRef.current === assets) return;
+    lastAssetsRef.current = assets;
+    assetsVersionRef.current += 1;
+    if (!isPreviewPoppedOut) return;
+    const sessionId = previewSessionIdRef.current;
+    if (!sessionId) return;
+    postPreviewMessage({
+      type: "assets-updated",
+      sessionId,
+      documentId: activeDocId,
+      assetsVersion: assetsVersionRef.current,
+    });
+  }, [activeDocId, assets, isPreviewPoppedOut, postPreviewMessage]);
+
+  useEffect(() => {
+    if (!isPreviewPoppedOut) return;
+    const timer = setInterval(() => {
+      const popup = popupWindowRef.current;
+      if (popup && popup.closed) {
+        popupWindowRef.current = null;
+        setIsPreviewPoppedOut(false);
+        setViewMode(previousViewModeRef.current);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isPreviewPoppedOut]);
+
+  const handleOpenPopoutPreview = useCallback(() => {
+    const existing = popupWindowRef.current;
+    if (existing && !existing.closed) {
+      existing.focus?.();
+      return;
+    }
+
+    const sessionId =
+      previewSessionIdRef.current ?? getOrCreatePreviewSessionId();
+    previewSessionIdRef.current = sessionId;
+    previousViewModeRef.current = viewMode === "editor" ? "split" : viewMode;
+
+    const popup = window.open(
+      buildPreviewPopoutUrl(sessionId),
+      `skopos_preview_${sessionId}`,
+      "popup,width=900,height=1100,resizable=yes,scrollbars=yes"
+    );
+
+    if (!popup) {
+      setModalState({
+        kind: "notice",
+        title: "別ウィンドウを開けませんでした",
+        message:
+          "ブラウザによりポップアップがブロックされました。このサイトのポップアップ表示を許可してから再度お試しください。",
+      });
+      return;
+    }
+
+    popupWindowRef.current = popup;
+    setIsPreviewPoppedOut(true);
+    popup.focus?.();
+  }, [viewMode]);
+
+  const handleFocusPopoutPreview = useCallback(() => {
+    const popup = popupWindowRef.current;
+    if (popup && !popup.closed) {
+      popup.focus?.();
+    }
+    const sessionId = previewSessionIdRef.current;
+    if (sessionId) {
+      postPreviewMessage({ type: "focus-preview", sessionId });
+    }
+  }, [postPreviewMessage]);
+
+  const handleDockPopoutPreview = useCallback(
+    (targetMode?: ViewMode) => {
+      const sessionId = previewSessionIdRef.current;
+      if (sessionId) {
+        postPreviewMessage({ type: "close-preview", sessionId });
+      }
+      const popup = popupWindowRef.current;
+      if (popup && !popup.closed) {
+        popup.close();
+      }
+      popupWindowRef.current = null;
+      setIsPreviewPoppedOut(false);
+      setViewMode(targetMode ?? previousViewModeRef.current);
+    },
+    [postPreviewMessage]
+  );
+
+  const handleViewModeChange = useCallback(
+    (nextMode: ViewMode) => {
+      if (isPreviewPoppedOut && nextMode !== "editor") {
+        handleDockPopoutPreview(nextMode);
+        return;
+      }
+      setViewMode(nextMode);
+    },
+    [handleDockPopoutPreview, isPreviewPoppedOut]
+  );
 
   useEffect(() => {
     setImportedFilename(null);
@@ -774,7 +1034,10 @@ export function Workspace() {
         title={parsed.frontmatter.title}
         saveStatus={saveStatus}
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        onViewModeChange={handleViewModeChange}
+        isPreviewPoppedOut={isPreviewPoppedOut}
+        onFocusPopoutPreview={handleFocusPopoutPreview}
+        onDockPopoutPreview={() => handleDockPopoutPreview()}
         onImportMarkdown={(content, filename) => {
           setImportedFilename(filename ?? null);
           setMarkdown(content);
@@ -842,11 +1105,14 @@ export function Workspace() {
           ref={containerRef}
           className="print-workspace-shell flex min-w-0 flex-1 overflow-hidden"
         >
-          {viewMode !== "preview" && (
+          {(viewMode !== "preview" || isPreviewPoppedOut) && (
             <div
               className="no-print min-h-0 overflow-hidden"
               style={{
-                width: viewMode === "split" ? `${splitPercent}%` : "100%",
+                width:
+                  viewMode === "split" && !isPreviewPoppedOut
+                    ? `${splitPercent}%`
+                    : "100%",
               }}
             >
               <EditorPane
@@ -859,7 +1125,7 @@ export function Workspace() {
             </div>
           )}
 
-          {viewMode === "split" && (
+          {viewMode === "split" && !isPreviewPoppedOut && (
             <div
               role="separator"
               tabIndex={0}
@@ -904,6 +1170,19 @@ export function Workspace() {
               restoreNotice={restoreNotice}
               onDismissRestoreNotice={() => setRestoreNotice(null)}
               assetRestoreNonce={assetRestoreNonce}
+              suspendAutoRender={isPreviewPoppedOut}
+              headerRightExtra={
+                <button
+                  type="button"
+                  onClick={handleOpenPopoutPreview}
+                  title="プレビューを別ウィンドウに分離"
+                  aria-label="プレビューを別ウィンドウに分離"
+                  className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 transition hover:border-sky-500/60 hover:bg-zinc-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  <span className="preview-cq-label">別ウィンドウ</span>
+                </button>
+              }
             />
           </div>
         </div>
