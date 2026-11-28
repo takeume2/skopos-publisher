@@ -438,7 +438,7 @@ export function Workspace() {
     const sessionId =
       previewSessionIdRef.current ?? getOrCreatePreviewSessionId();
     previewSessionIdRef.current = sessionId;
-    previousViewModeRef.current = viewMode === "editor" ? "split" : viewMode;
+    previousViewModeRef.current = viewMode;
 
     const popup = window.open(
       buildPreviewPopoutUrl(sessionId),
@@ -472,33 +472,19 @@ export function Workspace() {
     }
   }, [postPreviewMessage]);
 
-  const handleDockPopoutPreview = useCallback(
-    (targetMode?: ViewMode) => {
-      const sessionId = previewSessionIdRef.current;
-      if (sessionId) {
-        postPreviewMessage({ type: "close-preview", sessionId });
-      }
-      const popup = popupWindowRef.current;
-      if (popup && !popup.closed) {
-        popup.close();
-      }
-      popupWindowRef.current = null;
-      setIsPreviewPoppedOut(false);
-      setViewMode(targetMode ?? previousViewModeRef.current);
-    },
-    [postPreviewMessage]
-  );
-
-  const handleViewModeChange = useCallback(
-    (nextMode: ViewMode) => {
-      if (isPreviewPoppedOut && nextMode !== "editor") {
-        handleDockPopoutPreview(nextMode);
-        return;
-      }
-      setViewMode(nextMode);
-    },
-    [handleDockPopoutPreview, isPreviewPoppedOut]
-  );
+  const handleDockPopoutPreview = useCallback(() => {
+    const sessionId = previewSessionIdRef.current;
+    if (sessionId) {
+      postPreviewMessage({ type: "close-preview", sessionId });
+    }
+    const popup = popupWindowRef.current;
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+    popupWindowRef.current = null;
+    setIsPreviewPoppedOut(false);
+    setViewMode(previousViewModeRef.current);
+  }, [postPreviewMessage]);
 
   useEffect(() => {
     setImportedFilename(null);
@@ -512,11 +498,11 @@ export function Workspace() {
       const requestId = ++jumpRequestSeqRef.current;
       setCursorLine(heading.line);
       setJumpRequest({ line: heading.line, requestId });
-      if (viewMode === "preview") {
+      if (!isPreviewPoppedOut && viewMode === "preview") {
         setViewMode("split");
       }
     },
-    [viewMode]
+    [isPreviewPoppedOut, viewMode]
   );
 
   const handleFrontmatterChange = useCallback(
@@ -967,11 +953,11 @@ export function Workspace() {
       const requestId = ++jumpRequestSeqRef.current;
       setCursorLine(line);
       setJumpRequest({ line, requestId });
-      if (viewMode === "preview") {
+      if (!isPreviewPoppedOut && viewMode === "preview") {
         setViewMode("split");
       }
     },
-    [closeModal, viewMode]
+    [closeModal, isPreviewPoppedOut, viewMode]
   );
 
   const startResize = useCallback(() => {
@@ -1034,10 +1020,11 @@ export function Workspace() {
         title={parsed.frontmatter.title}
         saveStatus={saveStatus}
         viewMode={viewMode}
-        onViewModeChange={handleViewModeChange}
+        onViewModeChange={setViewMode}
         isPreviewPoppedOut={isPreviewPoppedOut}
+        onOpenPopoutPreview={handleOpenPopoutPreview}
         onFocusPopoutPreview={handleFocusPopoutPreview}
-        onDockPopoutPreview={() => handleDockPopoutPreview()}
+        onDockPopoutPreview={handleDockPopoutPreview}
         onImportMarkdown={(content, filename) => {
           setImportedFilename(filename ?? null);
           setMarkdown(content);

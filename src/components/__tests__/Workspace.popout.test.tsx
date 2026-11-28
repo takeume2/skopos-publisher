@@ -193,11 +193,12 @@ describe("Workspace popout preview integration (#64)", () => {
       `/preview?session=${encodeURIComponent(sessionId)}`
     );
 
-    // 親側はオフスクリーン非表示＋自動描画停止になり、トップバーに分離インジケーターが出る
+    // 親側はオフスクリーン非表示＋自動描画停止になり、トップバー中央は3択から分離バーへ差し替わる
     const wrapper = container.querySelector(".print-preview-pane")!;
     expect(wrapper.classList.contains("print-preview-pane-screen-hidden")).toBe(true);
     expect(latestPreviewProps.suspendAutoRender).toBe(true);
     expect(screen.getByText("別ウィンドウ表示中")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "表示モード切替" })).toBeNull();
 
     // 既に開いている状態で再クリックしても重複ウィンドウを開かず focus する（「前面へ」ボタンも含めて検証）
     mockPopup.focus.mockClear();
@@ -255,9 +256,9 @@ describe("Workspace popout preview integration (#64)", () => {
       expect(printSpy).toHaveBeenCalledTimes(1);
     });
 
-    // 「戻す」クリックで close-preview 送信＋popup.close()＋親プレビュー復帰
+    // 「メインに戻す」クリックで close-preview 送信＋popup.close()＋親プレビュー復帰
     childReceived.length = 0;
-    fireEvent.click(screen.getByRole("button", { name: "戻す" }));
+    fireEvent.click(screen.getByRole("button", { name: "メインに戻す" }));
     expect(childReceived).toContainEqual({
       type: "close-preview",
       sessionId,
@@ -265,6 +266,7 @@ describe("Workspace popout preview integration (#64)", () => {
     expect(mockPopup.close).toHaveBeenCalledTimes(1);
     expect(wrapper.classList.contains("print-preview-pane-screen-hidden")).toBe(false);
     expect(latestPreviewProps.suspendAutoRender).toBe(false);
+    expect(screen.getByRole("group", { name: "表示モード切替" })).toBeTruthy();
 
     childChannel.close();
   });
@@ -311,9 +313,9 @@ describe("Workspace popout preview integration (#64)", () => {
       childReceived.some((m) => (m as { type?: string }).type === "sync-state")
     ).toBe(true);
 
-    // popupRef が null でも「戻す」で close-preview が飛んでメイン復帰できる
+    // popupRef が null でも「メインに戻す」で close-preview が飛んでメイン復帰できる
     childReceived.length = 0;
-    fireEvent.click(screen.getByRole("button", { name: "戻す" }));
+    fireEvent.click(screen.getByRole("button", { name: "メインに戻す" }));
     expect(childReceived).toContainEqual({
       type: "close-preview",
       sessionId: "persisted-sess",
@@ -321,6 +323,52 @@ describe("Workspace popout preview integration (#64)", () => {
     expect(latestPreviewProps.suspendAutoRender).toBe(false);
 
     childChannel.close();
+  });
+
+  it("opens popout directly from editor-only mode via top toolbar icon and always restores the exact previous viewMode (#64)", () => {
+    const mockPopup = {
+      closed: false,
+      focus: vi.fn(),
+      close: vi.fn(() => {
+        mockPopup.closed = true;
+      }),
+    };
+    vi.spyOn(window, "open").mockReturnValue(mockPopup as unknown as Window);
+
+    const { container } = render(<Workspace />);
+    const wrapper = container.querySelector(".print-preview-pane")!;
+
+    // 1. 「エディタのみ」からトップバーの別ウィンドウアイコンで分離 → 「メインに戻す」で「エディタのみ」へ復帰
+    fireEvent.click(screen.getByRole("button", { name: "エディタのみ" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "プレビューを別ウィンドウで開く" })
+    );
+    expect(screen.getByText("別ウィンドウ表示中")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "表示モード切替" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "メインに戻す" }));
+    expect(
+      screen.getByRole("button", { name: "エディタのみ" }).getAttribute("aria-pressed")
+    ).toBe("true");
+    expect(wrapper.classList.contains("print-preview-pane-screen-hidden")).toBe(true);
+
+    // 2. 「プレビューのみ」から分離 → 「メインに戻す」で「プレビューのみ」へ復帰
+    mockPopup.closed = false;
+    fireEvent.click(screen.getByRole("button", { name: "プレビューのみ" }));
+    expect(screen.queryByTestId("mock-editor")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "プレビューを別ウィンドウで開く" })
+    );
+    // 分離中はメイン画面がエディタ全幅になる
+    expect(screen.getByTestId("mock-editor")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "メインに戻す" }));
+    expect(
+      screen
+        .getByRole("button", { name: "プレビューのみ" })
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    expect(screen.queryByTestId("mock-editor")).toBeNull();
   });
 
   it("restores split preview automatically via popup.closed polling if child closes without sending preview-closed", () => {
