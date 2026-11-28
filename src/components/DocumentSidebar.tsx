@@ -16,6 +16,7 @@ import type {
   SharedAssetSummary,
 } from "@/hooks/useIndexedDbStorage";
 import type { OutlineHeading } from "@/lib/outline";
+import { useI18n } from "./I18nProvider";
 
 export type SharedAssetRole = "logo" | "cover_image" | "back_cover_image";
 
@@ -85,6 +86,9 @@ export function DocumentSidebar({
   onRequestDeleteSharedAsset,
   onRequestDeleteAllSharedAssets,
 }: DocumentSidebarProps) {
+  const { dict, format } = useI18n();
+  const sb = dict.sidebar;
+
   const [activeTab, setActiveTab] = useState<SidebarTab>("docs");
   const sharedInputRef = useRef<HTMLInputElement>(null);
   const tabRefs = useRef<Record<SidebarTab, HTMLButtonElement | null>>({
@@ -122,12 +126,12 @@ export function DocumentSidebar({
 
   return (
     <aside
-      aria-label="文書・見出し・共通画像の管理"
+      aria-label={sb.asideAria}
       className="no-print flex h-full w-[260px] shrink-0 flex-col border-r border-slate-800 bg-slate-900 text-slate-200"
     >
       <div
         role="tablist"
-        aria-label="管理カテゴリ"
+        aria-label={sb.tabListAria}
         className="grid grid-cols-3 gap-0.5 border-b border-slate-800 bg-slate-950/60 p-1 text-[11px]"
       >
         <button
@@ -149,7 +153,9 @@ export function DocumentSidebar({
           }`}
         >
           <FileText className="h-3.5 w-3.5 shrink-0" />
-          <span className="whitespace-nowrap">文書 ({documents.length})</span>
+          <span className="whitespace-nowrap">
+            {format(sb.tabDocs, { count: documents.length })}
+          </span>
         </button>
         <button
           ref={(el) => {
@@ -161,7 +167,7 @@ export function DocumentSidebar({
           aria-selected={activeTab === "outline"}
           aria-controls="sidebar-tabpanel-outline"
           tabIndex={activeTab === "outline" ? 0 : -1}
-          title="アウトライン（見出し一覧）"
+          title={sb.tabOutlineTitle}
           onClick={() => setActiveTab("outline")}
           onKeyDown={(e) => handleTabKeyDown(e, 1)}
           className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1.5 font-medium transition ${FOCUS_RING} ${
@@ -171,7 +177,9 @@ export function DocumentSidebar({
           }`}
         >
           <ListTree className="h-3.5 w-3.5 shrink-0" />
-          <span className="whitespace-nowrap">見出し ({headings.length})</span>
+          <span className="whitespace-nowrap">
+            {format(sb.tabOutline, { count: headings.length })}
+          </span>
         </button>
         <button
           ref={(el) => {
@@ -193,7 +201,7 @@ export function DocumentSidebar({
         >
           <ImageIcon className="h-3.5 w-3.5 shrink-0" />
           <span className="whitespace-nowrap">
-            共通画像 ({sharedAssets.length})
+            {format(sb.tabAssets, { count: sharedAssets.length })}
           </span>
         </button>
       </div>
@@ -212,7 +220,7 @@ export function DocumentSidebar({
               className={`flex w-full items-center justify-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500 ${FOCUS_RING}`}
             >
               <Plus className="h-3.5 w-3.5" />
-              <span>新規文書を作成</span>
+              <span>{sb.createNewDoc}</span>
             </button>
           </div>
 
@@ -248,15 +256,17 @@ export function DocumentSidebar({
                   <div className="mt-1.5 flex items-center justify-between border-t border-slate-800/80 pt-1.5 text-[10px] text-slate-400">
                     <span>
                       {doc.assetCount > 0
-                        ? `画像 ${doc.assetCount}件`
-                        : "画像なし"}
+                        ? format(sb.imageCount, { count: doc.assetCount })
+                        : sb.noImages}
                     </span>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
                         onClick={() => onExportDocument(doc.id)}
-                        title="この文書を .md として保存"
-                        aria-label={`${doc.title} を .md として保存`}
+                        title={sb.exportDocTitle}
+                        aria-label={format(sb.exportDocAria, {
+                          title: doc.title,
+                        })}
                         className={`rounded p-1 text-slate-300 hover:bg-slate-800 hover:text-white ${FOCUS_RING}`}
                       >
                         <Download className="h-3 w-3" />
@@ -267,10 +277,12 @@ export function DocumentSidebar({
                         onClick={() => onRequestDeleteDocument(doc)}
                         title={
                           canDeleteSingle
-                            ? "この文書を削除"
-                            : "最後の1件は個別削除できません（リセットは「全ドキュメントを消去・初期化」を使用）"
+                            ? sb.deleteDocTitle
+                            : sb.deleteDocDisabledTitle
                         }
-                        aria-label={`${doc.title} を削除`}
+                        aria-label={format(sb.deleteDocAria, {
+                          title: doc.title,
+                        })}
                         className={`rounded p-1 text-red-400 hover:bg-red-950/60 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-35 ${FOCUS_RING}`}
                       >
                         <Trash2 className="h-3 w-3" />
@@ -284,7 +296,7 @@ export function DocumentSidebar({
 
           <div className="border-t border-slate-800 p-2.5 text-[11px]">
             <div className="mb-2 flex items-center justify-between text-slate-400">
-              <span>文書合計 ({documents.length}件)</span>
+              <span>{format(sb.docsTotal, { count: documents.length })}</span>
               <span className="font-mono text-slate-300">
                 {formatBytes(totalDocsBytes)}
               </span>
@@ -295,11 +307,11 @@ export function DocumentSidebar({
                   type="button"
                   onClick={onRequestResetSample}
                   disabled={documents.length === 0}
-                  title="現在の文書を初期サンプル Markdown で上書き復元"
+                  title={sb.resetSampleTitle}
                   className={`flex w-full items-center justify-center gap-1.5 rounded border border-amber-900/60 bg-amber-950/20 px-2.5 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-950/50 disabled:opacity-40 ${FOCUS_RING}`}
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  <span>サンプルを復元（上書き）</span>
+                  <span>{sb.resetSampleButton}</span>
                 </button>
               )}
               <button
@@ -309,7 +321,7 @@ export function DocumentSidebar({
                 className={`flex w-full items-center justify-center gap-1.5 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-950/70 disabled:opacity-40 ${FOCUS_RING}`}
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                <span>全ドキュメントを消去・初期化</span>
+                <span>{sb.deleteAllDocs}</span>
               </button>
             </div>
           </div>
@@ -324,24 +336,24 @@ export function DocumentSidebar({
           <div className="border-b border-slate-800 px-2.5 py-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-200">
-                アウトライン
+                {sb.outlineTitle}
               </span>
               <span className="font-mono text-[10px] text-slate-400">
-                {headings.length}件
+                {format(sb.outlineCount, { count: headings.length })}
               </span>
             </div>
             <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
-              見出しをクリックするとエディタの該当行へ移動します。
+              {sb.outlineHint}
             </p>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] p-2">
             {headings.length === 0 ? (
               <p className="px-2 py-6 text-center text-xs leading-relaxed text-slate-500">
-                見出し（# 〜 ######）が見つかりません。本文に見出しを追加するとここに一覧表示されます。
+                {sb.outlineEmpty}
               </p>
             ) : (
-              <nav aria-label="見出しアウトライン">
+              <nav aria-label={sb.outlineNavAria}>
                 <ul className="space-y-0.5">
                   {headings.map((heading) => {
                     const isActive = heading.id === activeHeadingId;
@@ -363,7 +375,11 @@ export function DocumentSidebar({
                           aria-current={isActive ? "location" : undefined}
                           data-heading-level={heading.level}
                           data-heading-line={heading.line}
-                          title={`H${heading.level} (行 ${heading.line}): ${heading.text}`}
+                          title={format(sb.outlineHeadingTitle, {
+                            level: heading.level,
+                            line: heading.line,
+                            text: heading.text,
+                          })}
                           style={{ paddingLeft: `${indentPx}px` }}
                           className={`group flex w-full items-center gap-1.5 rounded-md border py-1.5 pr-2 text-left transition ${FOCUS_RING} ${
                             isActive
@@ -432,17 +448,17 @@ export function DocumentSidebar({
               className={`flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-100 transition hover:bg-slate-700 ${FOCUS_RING}`}
             >
               <Upload className="h-3.5 w-3.5 text-sky-400" />
-              <span>共通画像を追加</span>
+              <span>{sb.addSharedAsset}</span>
             </button>
             <p className="text-[10px] leading-relaxed text-slate-400">
-              登録した画像は全文書で使いまわせます。ボタンから編集中の文書へ適用できます。
+              {sb.sharedAssetHint}
             </p>
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto [scrollbar-gutter:stable] p-2">
             {sharedAssets.length === 0 ? (
               <p className="px-2 py-6 text-center text-xs text-slate-500">
-                登録済みの共通画像はありません。上のボタンまたは設定パネルから登録できます。
+                {sb.sharedAssetEmpty}
               </p>
             ) : (
               sharedAssets.map((asset) => {
@@ -474,8 +490,10 @@ export function DocumentSidebar({
                       <button
                         type="button"
                         onClick={() => onRequestDeleteSharedAsset(asset)}
-                        title="共通画像をライブラリから削除"
-                        aria-label={`${asset.label} を削除`}
+                        title={sb.deleteSharedAssetTitle}
+                        aria-label={format(sb.deleteSharedAssetAria, {
+                          label: asset.label,
+                        })}
                         className={`rounded p-1.5 text-red-400 hover:bg-red-950/60 ${FOCUS_RING}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -493,7 +511,7 @@ export function DocumentSidebar({
                             : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
                         }`}
                       >
-                        {isLogo ? "✓ ロゴ" : "ロゴ"}
+                        {isLogo ? sb.roleLogoActive : sb.roleLogo}
                       </button>
                       <button
                         type="button"
@@ -507,7 +525,7 @@ export function DocumentSidebar({
                             : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
                         }`}
                       >
-                        {isCover ? "✓ 表紙" : "表紙"}
+                        {isCover ? sb.roleCoverActive : sb.roleCover}
                       </button>
                       <button
                         type="button"
@@ -521,7 +539,7 @@ export function DocumentSidebar({
                             : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
                         }`}
                       >
-                        {isBackCover ? "✓ 裏表紙" : "裏表紙"}
+                        {isBackCover ? sb.roleBackCoverActive : sb.roleBackCover}
                       </button>
                     </div>
                   </div>
@@ -532,7 +550,9 @@ export function DocumentSidebar({
 
           <div className="border-t border-slate-800 p-2.5 text-[11px]">
             <div className="mb-2 flex items-center justify-between text-slate-400">
-              <span>共通画像合計 ({sharedAssets.length}件)</span>
+              <span>
+                {format(sb.sharedAssetsTotal, { count: sharedAssets.length })}
+              </span>
               <span className="font-mono text-slate-300">
                 {formatBytes(totalSharedBytes)}
               </span>
@@ -544,7 +564,7 @@ export function DocumentSidebar({
               className={`flex w-full items-center justify-center gap-1.5 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-950/70 disabled:opacity-40 ${FOCUS_RING}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
-              <span>共通画像を全削除</span>
+              <span>{sb.deleteAllSharedAssets}</span>
             </button>
           </div>
         </div>

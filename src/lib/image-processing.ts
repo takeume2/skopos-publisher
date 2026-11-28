@@ -1,3 +1,4 @@
+import { formatMessage, getDictionary, type Locale } from "./i18n";
 import { sanitizeImageUrl } from "./markdown";
 
 export type ImageUploadPurpose = "inline" | "logo" | "cover" | "shared";
@@ -98,6 +99,7 @@ export interface ProcessImageOptions {
   createImageBitmap?: (source: Blob) => Promise<ImageBitmapLike>;
   createCanvas?: () => ImageCanvasLike | null;
   quality?: number;
+  locale?: Locale;
 }
 
 export function formatImageLimitMb(bytes: number): string {
@@ -152,14 +154,33 @@ export function computeResizedDimensions(
   };
 }
 
+function getLocalizedPurposeLabel(
+  purpose: ImageUploadPurpose,
+  locale: Locale
+): string {
+  const dict = getDictionary(locale).imageError;
+  switch (purpose) {
+    case "logo":
+      return dict.purposeLogo;
+    case "inline":
+      return dict.purposeInline;
+    case "shared":
+      return dict.purposeShared;
+    case "cover":
+      return dict.purposeCover;
+  }
+}
+
 export function validateImageFile(
   file: Pick<File, "name" | "type" | "size">,
-  purpose: ImageUploadPurpose
+  purpose: ImageUploadPurpose,
+  locale: Locale = "ja"
 ): void {
+  const errDict = getDictionary(locale).imageError;
   if (!isSupportedImageFile(file)) {
     throw new ImageValidationError(
       "UNSUPPORTED_TYPE",
-      `「${file.name}」はサポート対象外のファイル形式です（画像ファイルのみ読み込み可能です）。`
+      formatMessage(errDict.unsupportedType, { name: file.name })
     );
   }
 
@@ -172,15 +193,26 @@ export function validateImageFile(
   if (file.size > maxBytes) {
     const actualMb = (file.size / (1024 * 1024)).toFixed(1);
     const limitLabel = formatImageLimitMb(maxBytes);
-    const kindLabel = isSvg ? "SVG 画像" : limit.label;
+    const kindLabel = isSvg
+      ? errDict.svgLabel
+      : getLocalizedPurposeLabel(purpose, locale);
     throw new ImageValidationError(
       "FILE_TOO_LARGE",
-      `「${file.name}」（${actualMb} MB）は ${kindLabel} の上限（${limitLabel}）を超えているため読み込めません。`
+      formatMessage(errDict.fileTooLarge, {
+        name: file.name,
+        actual: actualMb,
+        kind: kindLabel,
+        limit: limitLabel,
+      })
     );
   }
 }
 
-function defaultReadFileAsDataUrl(file: File): Promise<string> {
+function defaultReadFileAsDataUrl(
+  file: File,
+  locale: Locale = "ja"
+): Promise<string> {
+  const errDict = getDictionary(locale).imageError;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -190,7 +222,7 @@ function defaultReadFileAsDataUrl(file: File): Promise<string> {
         reject(
           new ImageValidationError(
             "READ_FAILED",
-            `「${file.name}」の読み込みに失敗しました。`
+            formatMessage(errDict.readFailed, { name: file.name })
           )
         );
       }
@@ -199,7 +231,7 @@ function defaultReadFileAsDataUrl(file: File): Promise<string> {
       reject(
         new ImageValidationError(
           "READ_FAILED",
-          `「${file.name}」の読み込みに失敗しました。`
+          formatMessage(errDict.readFailed, { name: file.name })
         )
       );
     reader.readAsDataURL(file);
@@ -295,9 +327,11 @@ export async function processUploadedImageFile(
   purpose: ImageUploadPurpose,
   options: ProcessImageOptions = {}
 ): Promise<ProcessedImageResult> {
-  validateImageFile(file, purpose);
+  const locale = options.locale ?? "ja";
+  validateImageFile(file, purpose, locale);
 
-  const readAsDataUrl = options.readAsDataUrl ?? defaultReadFileAsDataUrl;
+  const readAsDataUrl =
+    options.readAsDataUrl ?? ((f: File) => defaultReadFileAsDataUrl(f, locale));
   const rawDataUrl = await readAsDataUrl(file);
   const originalBytes = file.size || estimateDataUrlBytes(rawDataUrl);
 
@@ -307,7 +341,9 @@ export async function processUploadedImageFile(
     if (!sanitized) {
       throw new ImageValidationError(
         "UNSAFE_SVG",
-        `「${file.name}」には安全でない SVG 要素（スクリプト等）が含まれているため読み込めません。`
+        formatMessage(getDictionary(locale).imageError.unsafeSvg, {
+          name: file.name,
+        })
       );
     }
     return {

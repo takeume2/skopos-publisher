@@ -17,10 +17,8 @@ import {
   detectTableAtCursorLine,
 } from "@/lib/table-col-widths";
 import { FormatSnippet, FormatToolbar } from "./FormatToolbar";
+import { useI18n } from "./I18nProvider";
 import { TableColWidthsPopover } from "./TableColWidthsPopover";
-
-const UNSUPPORTED_DROP_MESSAGE =
-  "画像ファイル以外はドロップできません（.md の読込は上部ツールバーをご利用ください）";
 
 export interface EditorJumpRequest {
   line: number;
@@ -43,6 +41,8 @@ export function EditorPane({
   jumpRequest,
   onCursorLineChange,
 }: EditorPaneProps) {
+  const { dict, format } = useI18n();
+  const ed = dict.editor;
   const editorRef = useRef<ReactCodeMirrorRef>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const dropNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -218,7 +218,7 @@ export function EditorPane({
         assetId = await onUploadImage(file);
       } catch (err) {
         showDropNotice(
-          err instanceof Error ? err.message : "画像の読み込みに失敗しました。"
+          err instanceof Error ? err.message : ed.imageUploadFailed
         );
         return;
       }
@@ -250,7 +250,7 @@ export function EditorPane({
         block: false,
       });
     },
-    [handleInsert, onUploadImage, showDropNotice]
+    [ed.imageUploadFailed, handleInsert, onUploadImage, showDropNotice]
   );
 
   const handleFileDropEvent = useCallback(
@@ -278,10 +278,10 @@ export function EditorPane({
         return true;
       }
 
-      showDropNotice(UNSUPPORTED_DROP_MESSAGE);
+      showDropNotice(ed.unsupportedDropMessage);
       return true;
     },
-    [insertImageFile, onUploadImage, showDropNotice]
+    [ed.unsupportedDropMessage, insertImageFile, onUploadImage, showDropNotice]
   );
 
   const extensions = useMemo(
@@ -372,7 +372,7 @@ export function EditorPane({
           <button
             type="button"
             onClick={() => setDropNotice(null)}
-            aria-label="通知を閉じる"
+            aria-label={ed.dismissNoticeAria}
             className="rounded px-1.5 py-0.5 text-amber-300 hover:bg-amber-900/60 hover:text-amber-100"
           >
             ×
@@ -424,8 +424,8 @@ export function EditorPane({
 
       <div className="flex items-center justify-between border-t border-slate-800 bg-slate-900 px-3 py-1 text-[11px] tabular-nums text-slate-400">
         <div className="flex items-center gap-4">
-          <span>文字数: {value.length.toLocaleString()}</span>
-          <span>行数: {lineCount.toLocaleString()}</span>
+          <span>{format(ed.charCount, { count: value.length.toLocaleString() })}</span>
+          <span>{format(ed.lineCount, { count: lineCount.toLocaleString() })}</span>
           {activeTableContext && (
             <button
               type="button"
@@ -433,13 +433,18 @@ export function EditorPane({
               className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 transition hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
               {activeTableContext.widths
-                ? `列幅: ${activeTableContext.widths.join("/")}%`
-                : "列幅: 自動"}
+                ? format(ed.colWidthsCustom, {
+                    widths: activeTableContext.widths.join("/"),
+                  })
+                : ed.colWidthsAuto}
             </button>
           )}
         </div>
         <div>
-          行 {cursorInfo.line}, 列 {cursorInfo.col}
+          {format(ed.cursorPosition, {
+            line: cursorInfo.line,
+            col: cursorInfo.col,
+          })}
         </div>
       </div>
     </div>

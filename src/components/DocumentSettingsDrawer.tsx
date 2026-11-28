@@ -40,6 +40,7 @@ import type {
   PageSize,
   TocDepth,
 } from "@/types/document";
+import { useI18n } from "./I18nProvider";
 
 interface DocumentSettingsDrawerProps {
   isOpen: boolean;
@@ -74,17 +75,24 @@ const VARIABLE_CHIPS = [
   "{pages}",
 ] as const;
 
-const CONFIDENTIAL_LABEL_PRESETS = [
+const CONFIDENTIAL_LABEL_PRESETS_JA = [
   "CONFIDENTIAL",
   "社外秘",
   "取扱注意",
   "極秘",
 ] as const;
 
-const THEME_CARDS: Array<{
+const CONFIDENTIAL_LABEL_PRESETS_EN = [
+  "CONFIDENTIAL",
+  "INTERNAL USE ONLY",
+  "RESTRICTED",
+  "DRAFT",
+] as const;
+
+const THEME_BASE: Array<{
   id: DocumentTheme;
   name: string;
-  desc: string;
+  descKey: "themeBusinessDesc" | "themeTechnicalDesc" | "themeMinimalDesc";
   coverBg: string;
   accentBg: string;
   lineColor: string;
@@ -94,7 +102,7 @@ const THEME_CARDS: Array<{
   {
     id: "business",
     name: "Business",
-    desc: "ネイビー基調のビジネス報告書",
+    descKey: "themeBusinessDesc",
     coverBg: "bg-[#1e3a5f]",
     accentBg: "bg-[#2563eb]",
     lineColor: "bg-slate-300",
@@ -104,7 +112,7 @@ const THEME_CARDS: Array<{
   {
     id: "technical",
     name: "Technical",
-    desc: "スレート＋シアンの技術仕様書",
+    descKey: "themeTechnicalDesc",
     coverBg: "bg-slate-900",
     accentBg: "bg-sky-500",
     lineColor: "bg-slate-300",
@@ -114,7 +122,7 @@ const THEME_CARDS: Array<{
   {
     id: "minimal",
     name: "Minimal",
-    desc: "明朝・余白重視のミニマルデザイン",
+    descKey: "themeMinimalDesc",
     coverBg: "bg-white border border-zinc-300",
     accentBg: "bg-zinc-900",
     lineColor: "bg-zinc-300",
@@ -137,7 +145,6 @@ interface ImageDropFieldProps {
 
 function ImageDropField({
   label,
-  value,
   resolvedSrc,
   assetPrefix,
   uploadPurpose,
@@ -146,6 +153,8 @@ function ImageDropField({
   onChangeValue,
   onError,
 }: ImageDropFieldProps) {
+  const { locale, dict, format } = useI18n();
+  const st = dict.settings;
   const [isDragging, setIsDragging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -153,7 +162,9 @@ function ImageDropField({
   const processFile = async (file: File) => {
     setLocalError(null);
     try {
-      const processed = await processUploadedImageFile(file, uploadPurpose);
+      const processed = await processUploadedImageFile(file, uploadPurpose, {
+        locale,
+      });
       const newId = `${assetPrefix}${Date.now()}_${Math.random()
         .toString(36)
         .slice(2, 5)}`;
@@ -161,9 +172,9 @@ function ImageDropField({
       onChangeValue(newId);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "画像の読み込みに失敗しました。";
+        err instanceof Error ? err.message : st.imageLoadErrorFallback;
       setLocalError(message);
-      onError?.("画像読み込みエラー", message);
+      onError?.(st.imageLoadErrorTitle, message);
     }
   };
 
@@ -192,8 +203,8 @@ function ImageDropField({
           <button
             type="button"
             onClick={() => onChangeValue("")}
-            title="この文書から解除（共通画像は保持）"
-            aria-label={`${label}をこの文書から解除`}
+            title={st.imageRemoveTitle}
+            aria-label={format(st.imageRemoveAria, { label })}
             className="rounded p-1.5 text-red-400 hover:bg-red-950/50"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -214,7 +225,7 @@ function ImageDropField({
           }}
           role="button"
           tabIndex={0}
-          aria-label={`${label}を選択またはドラッグ＆ドロップ`}
+          aria-label={format(st.imageDropAria, { label })}
           onClick={() => inputRef.current?.click()}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
@@ -229,15 +240,13 @@ function ImageDropField({
           }`}
         >
           <ImagePlus className="mb-1 h-4 w-4 text-slate-400" />
-          <span className="text-[10px] text-slate-300">
-            ドラッグ＆ドロップ または クリックして選択
-          </span>
+          <span className="text-[10px] text-slate-300">{st.imageDropHint}</span>
         </div>
       )}
       {!resolvedSrc && sharedAssets.length > 0 && (
         <select
           value=""
-          aria-label={`${label}を共通画像から選択`}
+          aria-label={format(st.imageSelectSharedAria, { label })}
           onChange={(e) => {
             if (e.target.value) {
               setLocalError(null);
@@ -246,7 +255,7 @@ function ImageDropField({
           }}
           className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
-          <option value="">登録済みの共通画像から選択...</option>
+          <option value="">{st.imageSelectSharedPlaceholder}</option>
           {sharedAssets.map((item) => (
             <option key={item.assetId} value={item.assetId}>
               {item.label}
@@ -282,6 +291,9 @@ export function DocumentSettingsDrawer({
   onSaveAsset,
   onNotice,
 }: DocumentSettingsDrawerProps) {
+  const { locale, dict, format } = useI18n();
+  const st = dict.settings;
+
   const [focusedField, setFocusedField] = useState<
     "header_left" | "header_right" | "footer_left" | "footer_right"
   >("header_left");
@@ -300,6 +312,19 @@ export function DocumentSettingsDrawer({
   if (!isOpen) return null;
 
   const activeFilenamePreset = resolveFilenamePresetId(filenameTemplate);
+  const confidentialPresets =
+    locale === "en"
+      ? CONFIDENTIAL_LABEL_PRESETS_EN
+      : CONFIDENTIAL_LABEL_PRESETS_JA;
+
+  const filenamePresetLabels: Record<
+    (typeof FILENAME_TEMPLATE_PRESETS)[number]["id"],
+    string
+  > = {
+    standard: st.filenamePresetStandard,
+    "date-title": st.filenamePresetDateTitle,
+    "title-only": st.filenamePresetTitleOnly,
+  };
 
   const handleInsertFilenameChip = (chip: string) => {
     if (!onChangeFilenameTemplate) return;
@@ -366,7 +391,7 @@ export function DocumentSettingsDrawer({
     : "";
 
   const activeThemeDefaults =
-    THEME_CARDS.find((t) => t.id === frontmatter.theme) ?? THEME_CARDS[0];
+    THEME_BASE.find((t) => t.id === frontmatter.theme) ?? THEME_BASE[0];
   const displayPrimaryColor =
     frontmatter.primary_color || activeThemeDefaults.defaultPrimary;
   const displayAccentColor =
@@ -377,12 +402,12 @@ export function DocumentSettingsDrawer({
       <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
         <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-white">
           <Settings2 className="h-4 w-4 text-sky-400" />
-          <span>ドキュメント設定</span>
+          <span>{st.title}</span>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="ドキュメント設定を閉じる"
+          aria-label={st.closeAria}
           className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <X className="h-4 w-4" />
@@ -395,7 +420,7 @@ export function DocumentSettingsDrawer({
           <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <Type className="h-3.5 w-3.5 text-sky-400" />
-              基本・用紙設定
+              {st.sectionBasic}
             </span>
             <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
           </summary>
@@ -403,9 +428,9 @@ export function DocumentSettingsDrawer({
           <div className="space-y-3 px-4 pb-4 pt-1">
             <div>
               <label className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
-                <span>タイトル</span>
+                <span>{st.fieldTitle}</span>
                 <span className="text-[10px] text-slate-500">
-                  Enter / \n / &lt;br&gt; で改行可
+                  {st.fieldTitleHint}
                 </span>
               </label>
               <textarea
@@ -416,95 +441,95 @@ export function DocumentSettingsDrawer({
               />
             </div>
 
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-400">
+                {st.fieldSubtitle}
+              </label>
+              <input
+                type="text"
+                value={frontmatter.subtitle}
+                onChange={(e) => updateField("subtitle", e.target.value)}
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="mb-1 block text-[11px] text-slate-400">
-                  サブタイトル
+                  {st.fieldAuthor}
                 </label>
                 <input
                   type="text"
-                  value={frontmatter.subtitle}
-                  onChange={(e) => updateField("subtitle", e.target.value)}
+                  value={frontmatter.author}
+                  onChange={(e) => updateField("author", e.target.value)}
                   className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                 />
               </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    作成者・組織名
-                  </label>
-                  <input
-                    type="text"
-                    value={frontmatter.author}
-                    onChange={(e) => updateField("author", e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    日付
-                  </label>
-                  <input
-                    type="text"
-                    value={frontmatter.date}
-                    onChange={(e) => updateField("date", e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  />
-                </div>
-              </div>
-
               <div>
                 <label className="mb-1 block text-[11px] text-slate-400">
-                  配布先（顧客名・担当者名）
+                  {st.fieldDate}
                 </label>
                 <input
                   type="text"
-                  placeholder="例: 株式会社〇〇 セキュリティ推進部 御中"
-                  value={frontmatter.recipient}
-                  onChange={(e) => updateField("recipient", e.target.value)}
+                  value={frontmatter.date}
+                  onChange={(e) => updateField("date", e.target.value)}
                   className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    用紙サイズ
-                  </label>
-                  <select
-                    value={frontmatter.page_size}
-                    onChange={(e) =>
-                      updateField("page_size", e.target.value as PageSize)
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  >
-                    <option value="A4">A4 (210×297mm)</option>
-                    <option value="A5">A5 (148×210mm)</option>
-                    <option value="B5">B5 (182×257mm)</option>
-                    <option value="Letter">Letter</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    印刷の向き
-                  </label>
-                  <select
-                    value={frontmatter.orientation}
-                    onChange={(e) =>
-                      updateField(
-                        "orientation",
-                        e.target.value as PageOrientation
-                      )
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  >
-                    <option value="portrait">縦 (Portrait)</option>
-                    <option value="landscape">横 (Landscape)</option>
-                  </select>
-                </div>
               </div>
             </div>
+
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-400">
+                {st.fieldRecipient}
+              </label>
+              <input
+                type="text"
+                placeholder={st.fieldRecipientPlaceholder}
+                value={frontmatter.recipient}
+                onChange={(e) => updateField("recipient", e.target.value)}
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  {st.fieldPageSize}
+                </label>
+                <select
+                  value={frontmatter.page_size}
+                  onChange={(e) =>
+                    updateField("page_size", e.target.value as PageSize)
+                  }
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                >
+                  <option value="A4">A4 (210×297mm)</option>
+                  <option value="A5">A5 (148×210mm)</option>
+                  <option value="B5">B5 (182×257mm)</option>
+                  <option value="Letter">Letter</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  {st.fieldOrientation}
+                </label>
+                <select
+                  value={frontmatter.orientation}
+                  onChange={(e) =>
+                    updateField(
+                      "orientation",
+                      e.target.value as PageOrientation
+                    )
+                  }
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                >
+                  <option value="portrait">{st.orientationPortrait}</option>
+                  <option value="landscape">{st.orientationLandscape}</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </details>
 
         {/* 2. 機密表示・透かし設定 */}
@@ -512,99 +537,97 @@ export function DocumentSettingsDrawer({
           <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
-              機密表示・透かし設定
+              {st.sectionConfidential}
             </span>
             <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
           </summary>
 
           <div className="space-y-3 px-4 pb-4 pt-1">
-              <div className="space-y-1.5">
-                {(
-                  [
-                    {
-                      value: "none",
-                      label: "1. 機密表示なし",
-                      desc: "ラベル・透かしを表示しません",
-                    },
-                    {
-                      value: "standard",
-                      label: "2. 標準モード",
-                      desc: "右ヘッダー・左フッターへ機密ラベルを自動合成",
-                    },
-                    {
-                      value: "strict",
-                      label: "3. 厳格モード",
-                      desc: "ヘッダー/フッター＋目次・本文に対角線透かしを描画",
-                    },
-                  ] as Array<{
-                    value: ConfidentialMode;
-                    label: string;
-                    desc: string;
-                  }>
-                ).map((opt) => {
-                  const active = frontmatter.confidential_mode === opt.value;
-                  return (
-                    <label
-                      key={opt.value}
-                      className={`flex cursor-pointer items-start gap-2 rounded border p-2 transition ${
-                        active
-                          ? "border-amber-500/70 bg-amber-500/10"
-                          : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="confidential_mode"
-                        value={opt.value}
-                        checked={active}
-                        onChange={() =>
-                          updateField("confidential_mode", opt.value)
-                        }
-                        className="mt-0.5 accent-amber-500"
-                      />
-                      <div className="min-w-0">
-                        <div className="font-medium text-white">
-                          {opt.label}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {opt.desc}
-                        </div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-
-              {frontmatter.confidential_mode !== "none" && (
-                <div className="space-y-2 rounded border border-slate-800 bg-slate-950/60 p-2.5">
-                  <div>
-                    <label className="mb-1 block text-[10px] text-slate-400">
-                      機密ラベル文字列
-                    </label>
+            <div className="space-y-1.5">
+              {(
+                [
+                  {
+                    value: "none",
+                    label: st.confNoneLabel,
+                    desc: st.confNoneDesc,
+                  },
+                  {
+                    value: "standard",
+                    label: st.confStandardLabel,
+                    desc: st.confStandardDesc,
+                  },
+                  {
+                    value: "strict",
+                    label: st.confStrictLabel,
+                    desc: st.confStrictDesc,
+                  },
+                ] as Array<{
+                  value: ConfidentialMode;
+                  label: string;
+                  desc: string;
+                }>
+              ).map((opt) => {
+                const active = frontmatter.confidential_mode === opt.value;
+                return (
+                  <label
+                    key={opt.value}
+                    className={`flex cursor-pointer items-start gap-2 rounded border p-2 transition ${
+                      active
+                        ? "border-amber-500/70 bg-amber-500/10"
+                        : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                    }`}
+                  >
                     <input
-                      type="text"
-                      value={frontmatter.confidential_label}
-                      onChange={(e) =>
-                        updateField("confidential_label", e.target.value)
+                      type="radio"
+                      name="confidential_mode"
+                      value={opt.value}
+                      checked={active}
+                      onChange={() =>
+                        updateField("confidential_mode", opt.value)
                       }
-                      className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      className="mt-0.5 accent-amber-500"
                     />
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {CONFIDENTIAL_LABEL_PRESETS.map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => updateField("confidential_label", preset)}
-                        className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-slate-700"
-                      >
-                        {preset}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    <div className="min-w-0">
+                      <div className="font-medium text-white">{opt.label}</div>
+                      <div className="text-[10px] text-slate-400">
+                        {opt.desc}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
+
+            {frontmatter.confidential_mode !== "none" && (
+              <div className="space-y-2 rounded border border-slate-800 bg-slate-950/60 p-2.5">
+                <div>
+                  <label className="mb-1 block text-[10px] text-slate-400">
+                    {st.confLabelField}
+                  </label>
+                  <input
+                    type="text"
+                    value={frontmatter.confidential_label}
+                    onChange={(e) =>
+                      updateField("confidential_label", e.target.value)
+                    }
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {confidentialPresets.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => updateField("confidential_label", preset)}
+                      className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-slate-700"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </details>
 
         {/* 3. 出力ファイル名規則・ガイド */}
@@ -612,214 +635,218 @@ export function DocumentSettingsDrawer({
           <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <FileDown className="h-3.5 w-3.5 text-sky-400" />
-              出力ファイル名
+              {st.sectionFilename}
             </span>
             <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
           </summary>
 
           <div className="space-y-3 px-4 pb-4 pt-1">
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">
-                    命名規則プリセット
-                  </span>
-                  {filenameTemplate !== DEFAULT_FILENAME_TEMPLATE &&
-                    onChangeFilenameTemplate && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onChangeFilenameTemplate(DEFAULT_FILENAME_TEMPLATE)
-                        }
-                        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-800 hover:text-white"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        <span>標準に戻す</span>
-                      </button>
-                    )}
-                </div>
-                <div className="space-y-1">
-                  {FILENAME_TEMPLATE_PRESETS.map((preset) => {
-                    const active = activeFilenamePreset === preset.id;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() =>
-                          onChangeFilenameTemplate?.(preset.template)
-                        }
-                        className={`flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-left text-[11px] transition ${
-                          active
-                            ? "border-sky-500/70 bg-sky-500/15 font-medium text-sky-200"
-                            : "border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700 hover:text-white"
-                        }`}
-                      >
-                        <span>{preset.label}</span>
-                        <span className="font-mono text-[9px] text-slate-400">
-                          {preset.template}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="export-filename-template-input"
-                  className="mb-1 flex items-center justify-between text-[11px] text-slate-400"
-                >
-                  <span>テンプレート</span>
-                  {activeFilenamePreset === "custom" && (
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] text-sky-300">
-                      カスタム
-                    </span>
-                  )}
-                </label>
-                <input
-                  id="export-filename-template-input"
-                  type="text"
-                  value={filenameTemplate}
-                  placeholder={DEFAULT_FILENAME_TEMPLATE}
-                  onChange={(e) => onChangeFilenameTemplate?.(e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-[11px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                />
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {FILENAME_VARIABLE_CHIPS.map((chip) => (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-slate-400">
+                  {st.filenamePresetsLabel}
+                </span>
+                {filenameTemplate !== DEFAULT_FILENAME_TEMPLATE &&
+                  onChangeFilenameTemplate && (
                     <button
-                      key={chip}
                       type="button"
-                      onClick={() => handleInsertFilenameChip(chip)}
-                      className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300 hover:bg-slate-700"
+                      onClick={() =>
+                        onChangeFilenameTemplate(DEFAULT_FILENAME_TEMPLATE)
+                      }
+                      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-800 hover:text-white"
                     >
-                      {chip}
+                      <RotateCcw className="h-3 w-3" />
+                      <span>{dict.common.resetToDefault}</span>
                     </button>
-                  ))}
-                </div>
+                  )}
               </div>
-
-              {exportFilenamePreview && (
-                <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/70 p-2.5">
-                  <div className="text-[10px] font-semibold text-slate-300">
-                    生成ファイル名プレビュー
-                  </div>
-                  {(
-                    [
-                      {
-                        kind: "pdf" as const,
-                        label: "PDF",
-                        value: exportFilenamePreview.pdf,
-                      },
-                      {
-                        kind: "md" as const,
-                        label: "MD",
-                        value: exportFilenamePreview.md,
-                      },
-                    ] as const
-                  ).map((item) => {
-                    const isCopied = copiedTarget === item.kind;
-                    return (
-                      <div
-                        key={item.kind}
-                        className="flex items-center gap-1.5 rounded border border-slate-800/90 bg-slate-900/70 px-2 py-1"
-                      >
-                        <span className="shrink-0 rounded bg-slate-800 px-1 py-0.5 font-mono text-[9px] font-semibold text-slate-300">
-                          {item.label}
-                        </span>
-                        <span
-                          title={item.value}
-                          data-testid={`export-filename-preview-${item.kind}`}
-                          className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-200"
-                        >
-                          {item.value}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleCopyFilename(item.kind, item.value)
-                          }
-                          aria-label={`${item.label}ファイル名をコピー`}
-                          title={`${item.label}ファイル名をコピー`}
-                          className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white"
-                        >
-                          {isCopied ? (
-                            <Check className="h-3 w-3 text-emerald-400" />
-                          ) : (
-                            <Copy className="h-3 w-3" />
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })}
-                  <p className="pt-0.5 text-[10px] leading-relaxed text-slate-400">
-                    PDF出力時の初期ファイル名・.md保存時のファイル名へ自動適用されます（機密表示なし時は{" "}
-                    <code className="font-mono text-slate-300">
-                      {"{confidential}"}
-                    </code>{" "}
-                    を自動省略）。
-                  </p>
-                </div>
-              )}
-
-              {(onChangeSkipPrintHeaderFooterNotice ||
-                onChangeEnablePreflightCheck ||
-                onChangePreflightNgWords) && (
-                <div className="space-y-2.5 border-t border-slate-800/80 pt-2.5">
-                  {onChangeSkipPrintHeaderFooterNotice && (
-                    <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={!skipPrintHeaderFooterNotice}
-                        onChange={(e) =>
-                          onChangeSkipPrintHeaderFooterNotice(!e.target.checked)
-                        }
-                        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                      />
-                      <span className="leading-relaxed">
-                        印刷前にヘッダー／フッター無効化の注意喚起を表示する
+              <div className="space-y-1">
+                {FILENAME_TEMPLATE_PRESETS.map((preset) => {
+                  const active = activeFilenamePreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() =>
+                        onChangeFilenameTemplate?.(preset.template)
+                      }
+                      className={`flex w-full flex-col items-start gap-0.5 rounded border px-2.5 py-1.5 text-left text-[11px] transition ${
+                        active
+                          ? "border-sky-500/70 bg-sky-500/15 font-medium text-sky-200"
+                          : "border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700 hover:text-white"
+                      }`}
+                    >
+                      <span className="leading-snug">
+                        {filenamePresetLabels[preset.id]}
                       </span>
-                    </label>
-                  )}
-
-                  {onChangeEnablePreflightCheck && (
-                    <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={enablePreflightCheck}
-                        onChange={(e) =>
-                          onChangeEnablePreflightCheck(e.target.checked)
-                        }
-                        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                      />
-                      <span className="leading-relaxed">
-                        印刷前にプリフライトチェック（TBD・仮値・NGワード）を実行する
+                      <span className="max-w-full break-all font-mono text-[9px] text-slate-400">
+                        {preset.template}
                       </span>
-                    </label>
-                  )}
-
-                  {onChangePreflightNgWords && enablePreflightCheck && (
-                    <div>
-                      <label
-                        htmlFor="preflight-ng-words-input"
-                        className="mb-1 block text-[11px] text-slate-400"
-                      >
-                        カスタム NG ワード（改行・カンマ区切り）
-                      </label>
-                      <textarea
-                        id="preflight-ng-words-input"
-                        rows={2}
-                        value={preflightNgWords}
-                        placeholder="例: 社内限定, ProjectX, internal.example.com"
-                        onChange={(e) =>
-                          onChangePreflightNgWords(e.target.value)
-                        }
-                        className="mdpub-auto-textarea w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[11px] text-white placeholder:text-slate-600 focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+
+            <div>
+              <label
+                htmlFor="export-filename-template-input"
+                className="mb-1 flex items-center justify-between text-[11px] text-slate-400"
+              >
+                <span>{st.filenameTemplateLabel}</span>
+                {activeFilenamePreset === "custom" && (
+                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] text-sky-300">
+                    {dict.common.custom}
+                  </span>
+                )}
+              </label>
+              <input
+                id="export-filename-template-input"
+                type="text"
+                value={filenameTemplate}
+                placeholder={DEFAULT_FILENAME_TEMPLATE}
+                onChange={(e) => onChangeFilenameTemplate?.(e.target.value)}
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-[11px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              />
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {FILENAME_VARIABLE_CHIPS.map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => handleInsertFilenameChip(chip)}
+                    className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300 hover:bg-slate-700"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {exportFilenamePreview && (
+              <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/70 p-2.5">
+                <div className="text-[10px] font-semibold text-slate-300">
+                  {st.filenamePreviewTitle}
+                </div>
+                {(
+                  [
+                    {
+                      kind: "pdf" as const,
+                      label: "PDF",
+                      value: exportFilenamePreview.pdf,
+                    },
+                    {
+                      kind: "md" as const,
+                      label: "MD",
+                      value: exportFilenamePreview.md,
+                    },
+                  ] as const
+                ).map((item) => {
+                  const isCopied = copiedTarget === item.kind;
+                  return (
+                    <div
+                      key={item.kind}
+                      className="flex items-center gap-1.5 rounded border border-slate-800/90 bg-slate-900/70 px-2 py-1"
+                    >
+                      <span className="shrink-0 rounded bg-slate-800 px-1 py-0.5 font-mono text-[9px] font-semibold text-slate-300">
+                        {item.label}
+                      </span>
+                      <span
+                        title={item.value}
+                        data-testid={`export-filename-preview-${item.kind}`}
+                        className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-200"
+                      >
+                        {item.value}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleCopyFilename(item.kind, item.value)
+                        }
+                        aria-label={format(st.copyFilenameAria, {
+                          label: item.label,
+                        })}
+                        title={format(st.copyFilenameAria, {
+                          label: item.label,
+                        })}
+                        className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                      >
+                        {isCopied ? (
+                          <Check className="h-3 w-3 text-emerald-400" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+                <p className="pt-0.5 text-[10px] leading-relaxed text-slate-400">
+                  {st.filenameHelpPrefix}
+                  <code className="font-mono text-slate-300">
+                    {"{confidential}"}
+                  </code>
+                  {st.filenameHelpSuffix}
+                </p>
+              </div>
+            )}
+
+            {(onChangeSkipPrintHeaderFooterNotice ||
+              onChangeEnablePreflightCheck ||
+              onChangePreflightNgWords) && (
+              <div className="space-y-2.5 border-t border-slate-800/80 pt-2.5">
+                {onChangeSkipPrintHeaderFooterNotice && (
+                  <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={!skipPrintHeaderFooterNotice}
+                      onChange={(e) =>
+                        onChangeSkipPrintHeaderFooterNotice(!e.target.checked)
+                      }
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                    />
+                    <span className="leading-relaxed">
+                      {st.togglePrintNotice}
+                    </span>
+                  </label>
+                )}
+
+                {onChangeEnablePreflightCheck && (
+                  <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={enablePreflightCheck}
+                      onChange={(e) =>
+                        onChangeEnablePreflightCheck(e.target.checked)
+                      }
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-600 bg-slate-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                    />
+                    <span className="leading-relaxed">
+                      {st.togglePreflight}
+                    </span>
+                  </label>
+                )}
+
+                {onChangePreflightNgWords && enablePreflightCheck && (
+                  <div>
+                    <label
+                      htmlFor="preflight-ng-words-input"
+                      className="mb-1 block text-[11px] text-slate-400"
+                    >
+                      {st.preflightNgWordsLabel}
+                    </label>
+                    <textarea
+                      id="preflight-ng-words-input"
+                      rows={2}
+                      value={preflightNgWords}
+                      placeholder={st.preflightNgWordsPlaceholder}
+                      onChange={(e) => onChangePreflightNgWords(e.target.value)}
+                      className="mdpub-auto-textarea w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[11px] text-white placeholder:text-slate-600 focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </details>
 
         {/* 4. デザインテーマ & カスタマイズ */}
@@ -827,199 +854,199 @@ export function DocumentSettingsDrawer({
           <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <Palette className="h-3.5 w-3.5 text-sky-400" />
-              デザインテーマ & カスタマイズ
+              {st.sectionTheme}
             </span>
             <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
           </summary>
 
           <div className="space-y-3 px-4 pb-4 pt-1">
-              <div className="space-y-2">
-                {THEME_CARDS.map((card) => {
-                  const selected = frontmatter.theme === card.id;
-                  return (
-                    <button
-                      key={card.id}
-                      type="button"
-                      onClick={() => updateField("theme", card.id)}
-                      className={`flex w-full items-center gap-3 rounded-md border p-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
-                        selected
-                          ? "border-sky-500 bg-sky-500/10"
-                          : "border-slate-700 bg-slate-950/70 hover:border-slate-600"
-                      }`}
-                    >
-                      <div className="flex h-12 w-9 shrink-0 flex-col overflow-hidden rounded-sm bg-white shadow-sm">
-                        <div className={`h-4 w-full ${card.coverBg}`} />
-                        <div className="flex flex-1 flex-col justify-center gap-1 p-1">
-                          <div
-                            className={`h-1 w-5 rounded-full ${card.accentBg}`}
-                          />
-                          <div className={`h-0.5 w-full ${card.lineColor}`} />
-                          <div className={`h-0.5 w-4/5 ${card.lineColor}`} />
-                        </div>
+            <div className="space-y-2">
+              {THEME_BASE.map((card) => {
+                const selected = frontmatter.theme === card.id;
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => updateField("theme", card.id)}
+                    className={`flex w-full items-center gap-3 rounded-md border p-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
+                      selected
+                        ? "border-sky-500 bg-sky-500/10"
+                        : "border-slate-700 bg-slate-950/70 hover:border-slate-600"
+                    }`}
+                  >
+                    <div className="flex h-12 w-9 shrink-0 flex-col overflow-hidden rounded-sm bg-white shadow-sm">
+                      <div className={`h-4 w-full ${card.coverBg}`} />
+                      <div className="flex flex-1 flex-col justify-center gap-1 p-1">
+                        <div
+                          className={`h-1 w-5 rounded-full ${card.accentBg}`}
+                        />
+                        <div className={`h-0.5 w-full ${card.lineColor}`} />
+                        <div className={`h-0.5 w-4/5 ${card.lineColor}`} />
                       </div>
+                    </div>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-white">
-                          {card.name}
-                        </div>
-                        <div className="truncate text-[11px] text-slate-400">
-                          {card.desc}
-                        </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-white">
+                        {card.name}
                       </div>
-                    </button>
-                  );
-                })}
+                      <div className="truncate text-[11px] text-slate-400">
+                        {st[card.descKey]}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="space-y-2.5 rounded-md border border-slate-800 bg-slate-950/60 p-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-300">
+                  {st.themeCustomizeTitle}
+                </span>
+                <button
+                  type="button"
+                  onClick={resetThemeCustomization}
+                  title={st.themeResetTitle}
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-800 hover:text-white"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>{dict.common.resetToDefault}</span>
+                </button>
               </div>
 
-              <div className="space-y-2.5 rounded-md border border-slate-800 bg-slate-950/60 p-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-300">
-                    テーマ詳細カスタマイズ
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-[10px] text-slate-400">
+                    {st.primaryColor}
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="color"
+                      value={displayPrimaryColor}
+                      onChange={(e) =>
+                        updateField("primary_color", e.target.value)
+                      }
+                      className="h-6 w-7 shrink-0 cursor-pointer rounded border border-slate-700 bg-transparent p-0"
+                    />
+                    <input
+                      type="text"
+                      placeholder={activeThemeDefaults.defaultPrimary}
+                      value={frontmatter.primary_color}
+                      onChange={(e) =>
+                        updateField("primary_color", e.target.value)
+                      }
+                      className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 font-mono text-[10px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[10px] text-slate-400">
+                    {st.accentColor}
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="color"
+                      value={displayAccentColor}
+                      onChange={(e) =>
+                        updateField("accent_color", e.target.value)
+                      }
+                      className="h-6 w-7 shrink-0 cursor-pointer rounded border border-slate-700 bg-transparent p-0"
+                    />
+                    <input
+                      type="text"
+                      placeholder={activeThemeDefaults.defaultAccent}
+                      value={frontmatter.accent_color}
+                      onChange={(e) =>
+                        updateField("accent_color", e.target.value)
+                      }
+                      className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 font-mono text-[10px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[10px] text-slate-400">
+                  {st.headingHighlight}
+                </label>
+                <select
+                  value={frontmatter.heading_highlight}
+                  onChange={(e) =>
+                    updateField(
+                      "heading_highlight",
+                      e.target.value as HeadingHighlightMode
+                    )
+                  }
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                >
+                  <option value="tinted">{st.headingHighlightTinted}</option>
+                  <option value="solid">{st.headingHighlightSolid}</option>
+                  <option value="none">{st.headingHighlightNone}</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[10px] text-slate-400">
+                  {st.bodyFont}
+                </label>
+                <select
+                  value={frontmatter.font_family}
+                  onChange={(e) =>
+                    updateField(
+                      "font_family",
+                      e.target.value as FontFamilyOption
+                    )
+                  }
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                >
+                  <option value="theme">{st.fontTheme}</option>
+                  <option value="sans">{st.fontSans}</option>
+                  <option value="serif">{st.fontSerif}</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between text-[10px]">
+                  <span className="text-slate-400">{st.fontSize}</span>
+                  <span className="font-mono text-sky-300">
+                    {frontmatter.font_size}pt
                   </span>
-                  <button
-                    type="button"
-                    onClick={resetThemeCustomization}
-                    title="カラー・タイポグラフィを標準に戻す"
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-800 hover:text-white"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                    <span>標準に戻す</span>
-                  </button>
                 </div>
+                <input
+                  type="range"
+                  min={9}
+                  max={12}
+                  step={0.5}
+                  value={frontmatter.font_size}
+                  onChange={(e) =>
+                    updateField("font_size", Number(e.target.value))
+                  }
+                  className="h-1.5 w-full cursor-pointer accent-sky-500"
+                />
+              </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="mb-1 block text-[10px] text-slate-400">
-                      プライマリカラー
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="color"
-                        value={displayPrimaryColor}
-                        onChange={(e) =>
-                          updateField("primary_color", e.target.value)
-                        }
-                        className="h-6 w-7 shrink-0 cursor-pointer rounded border border-slate-700 bg-transparent p-0"
-                      />
-                      <input
-                        type="text"
-                        placeholder={activeThemeDefaults.defaultPrimary}
-                        value={frontmatter.primary_color}
-                        onChange={(e) =>
-                          updateField("primary_color", e.target.value)
-                        }
-                        className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 font-mono text-[10px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-[10px] text-slate-400">
-                      アクセントカラー
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="color"
-                        value={displayAccentColor}
-                        onChange={(e) =>
-                          updateField("accent_color", e.target.value)
-                        }
-                        className="h-6 w-7 shrink-0 cursor-pointer rounded border border-slate-700 bg-transparent p-0"
-                      />
-                      <input
-                        type="text"
-                        placeholder={activeThemeDefaults.defaultAccent}
-                        value={frontmatter.accent_color}
-                        onChange={(e) =>
-                          updateField("accent_color", e.target.value)
-                        }
-                        className="w-full min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-1 font-mono text-[10px] text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                      />
-                    </div>
-                  </div>
+              <div>
+                <div className="mb-1 flex items-center justify-between text-[10px]">
+                  <span className="text-slate-400">{st.lineHeight}</span>
+                  <span className="font-mono text-sky-300">
+                    {frontmatter.line_height.toFixed(1)}
+                  </span>
                 </div>
-
-                <div>
-                  <label className="mb-1 block text-[10px] text-slate-400">
-                    見出しハイライト
-                  </label>
-                  <select
-                    value={frontmatter.heading_highlight}
-                    onChange={(e) =>
-                      updateField(
-                        "heading_highlight",
-                        e.target.value as HeadingHighlightMode
-                      )
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  >
-                    <option value="tinted">淡色ハイライト（推奨・テーマ連動）</option>
-                    <option value="solid">濃色帯（H1強調・H2淡色）</option>
-                    <option value="none">標準（ハイライトなし）</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-[10px] text-slate-400">
-                    本文フォント
-                  </label>
-                  <select
-                    value={frontmatter.font_family}
-                    onChange={(e) =>
-                      updateField(
-                        "font_family",
-                        e.target.value as FontFamilyOption
-                      )
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  >
-                    <option value="theme">テーマ標準</option>
-                    <option value="sans">ゴシック体 (Sans-serif)</option>
-                    <option value="serif">明朝体 (Serif)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <div className="mb-1 flex items-center justify-between text-[10px]">
-                    <span className="text-slate-400">本文フォントサイズ</span>
-                    <span className="font-mono text-sky-300">
-                      {frontmatter.font_size}pt
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={9}
-                    max={12}
-                    step={0.5}
-                    value={frontmatter.font_size}
-                    onChange={(e) =>
-                      updateField("font_size", Number(e.target.value))
-                    }
-                    className="h-1.5 w-full cursor-pointer accent-sky-500"
-                  />
-                </div>
-
-                <div>
-                  <div className="mb-1 flex items-center justify-between text-[10px]">
-                    <span className="text-slate-400">行間 (Line Height)</span>
-                    <span className="font-mono text-sky-300">
-                      {frontmatter.line_height.toFixed(1)}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={1.4}
-                    max={2.0}
-                    step={0.1}
-                    value={frontmatter.line_height}
-                    onChange={(e) =>
-                      updateField("line_height", Number(e.target.value))
-                    }
-                    className="h-1.5 w-full cursor-pointer accent-sky-500"
-                  />
-                </div>
+                <input
+                  type="range"
+                  min={1.4}
+                  max={2.0}
+                  step={0.1}
+                  value={frontmatter.line_height}
+                  onChange={(e) =>
+                    updateField("line_height", Number(e.target.value))
+                  }
+                  className="h-1.5 w-full cursor-pointer accent-sky-500"
+                />
               </div>
             </div>
+          </div>
         </details>
 
         {/* 5. ページ構成（表紙・目次・奥付） */}
@@ -1027,147 +1054,141 @@ export function DocumentSettingsDrawer({
           <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <LayoutTemplate className="h-3.5 w-3.5 text-sky-400" />
-              ページ構成（表紙・目次・奥付）
+              {st.sectionPageStructure}
             </span>
             <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
           </summary>
 
           <div className="space-y-3 px-4 pb-4 pt-1">
-              <div className="space-y-2">
-                <label className="flex cursor-pointer items-center justify-between">
-                  <span>表紙を生成</span>
-                  <input
-                    type="checkbox"
-                    checked={frontmatter.cover}
-                    onChange={(e) => updateField("cover", e.target.checked)}
-                    className="h-4 w-4 accent-sky-500"
+            <div className="space-y-2">
+              <label className="flex cursor-pointer items-center justify-between">
+                <span>{st.enableCover}</span>
+                <input
+                  type="checkbox"
+                  checked={frontmatter.cover}
+                  onChange={(e) => updateField("cover", e.target.checked)}
+                  className="h-4 w-4 accent-sky-500"
+                />
+              </label>
+
+              {frontmatter.cover && (
+                <div className="space-y-2 pl-2">
+                  <ImageDropField
+                    label={st.coverBgImage}
+                    value={frontmatter.cover_image}
+                    resolvedSrc={resolvedCoverImageSrc}
+                    assetPrefix="asset:shared_cover_"
+                    uploadPurpose="cover"
+                    sharedAssets={sharedAssets}
+                    onSave={onSaveAsset}
+                    onChangeValue={(val) => updateField("cover_image", val)}
+                    onError={onNotice}
                   />
-                </label>
-
-                {frontmatter.cover && (
-                  <div className="space-y-2 pl-2">
-                    <ImageDropField
-                      label="表紙の背景画像"
-                      value={frontmatter.cover_image}
-                      resolvedSrc={resolvedCoverImageSrc}
-                      assetPrefix="asset:shared_cover_"
-                      uploadPurpose="cover"
-                      sharedAssets={sharedAssets}
-                      onSave={onSaveAsset}
-                      onChangeValue={(val) => updateField("cover_image", val)}
-                      onError={onNotice}
-                    />
-                    {frontmatter.cover_image && (
-                      <div>
-                        <label className="mb-1 block text-[10px] text-slate-400">
-                          オーバーレイ・文字色モード
-                        </label>
-                        <select
-                          value={frontmatter.cover_overlay}
-                          onChange={(e) =>
-                            updateField(
-                              "cover_overlay",
-                              e.target.value as CoverOverlayMode
-                            )
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                        >
-                          <option value="light-fade">
-                            明背景用（白フェード＋濃色文字）
-                          </option>
-                          <option value="dark-fade">
-                            暗背景用（黒フェード＋白文字）
-                          </option>
-                          <option value="none">
-                            オーバーレイなし（白文字）
-                          </option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="flex cursor-pointer items-center justify-between">
-                  <span>目次を自動生成</span>
-                  <input
-                    type="checkbox"
-                    checked={frontmatter.toc}
-                    onChange={(e) => updateField("toc", e.target.checked)}
-                    className="h-4 w-4 accent-sky-500"
-                  />
-                </label>
-
-                {frontmatter.toc && (
-                  <div className="flex items-center justify-between pl-2">
-                    <span className="text-[11px] text-slate-400">
-                      見出しの深さ
-                    </span>
-                    <select
-                      value={frontmatter.toc_depth}
-                      onChange={(e) =>
-                        updateField(
-                          "toc_depth",
-                          Number(e.target.value) as TocDepth
-                        )
-                      }
-                      className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white"
-                    >
-                      <option value={1}>H1 まで</option>
-                      <option value={2}>H1 〜 H2</option>
-                      <option value={3}>H1 〜 H3</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="flex cursor-pointer items-center justify-between">
-                  <span>裏表紙（奥付）を生成</span>
-                  <input
-                    type="checkbox"
-                    checked={frontmatter.back_cover}
-                    onChange={(e) =>
-                      updateField("back_cover", e.target.checked)
-                    }
-                    className="h-4 w-4 accent-sky-500"
-                  />
-                </label>
-
-                {frontmatter.back_cover && (
-                  <div className="space-y-2.5 pl-2">
+                  {frontmatter.cover_image && (
                     <div>
-                      <label className="mb-1 block text-[11px] text-slate-400">
-                        奥付テキスト
+                      <label className="mb-1 block text-[10px] text-slate-400">
+                        {st.coverOverlayMode}
                       </label>
-                      <textarea
-                        rows={3}
-                        value={frontmatter.back_cover_text}
+                      <select
+                        value={frontmatter.cover_overlay}
                         onChange={(e) =>
-                          updateField("back_cover_text", e.target.value)
+                          updateField(
+                            "cover_overlay",
+                            e.target.value as CoverOverlayMode
+                          )
                         }
-                        className="mdpub-auto-textarea w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                      />
+                        className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                      >
+                        <option value="light-fade">
+                          {st.coverOverlayLight}
+                        </option>
+                        <option value="dark-fade">{st.coverOverlayDark}</option>
+                        <option value="none">{st.coverOverlayNone}</option>
+                      </select>
                     </div>
+                  )}
+                </div>
+              )}
+            </div>
 
-                    <ImageDropField
-                      label="裏表紙の背景画像"
-                      value={frontmatter.back_cover_image}
-                      resolvedSrc={resolvedBackCoverImageSrc}
-                      assetPrefix="asset:shared_backcover_"
-                      uploadPurpose="cover"
-                      sharedAssets={sharedAssets}
-                      onSave={onSaveAsset}
-                      onChangeValue={(val) =>
-                        updateField("back_cover_image", val)
+            <div className="space-y-2">
+              <label className="flex cursor-pointer items-center justify-between">
+                <span>{st.enableToc}</span>
+                <input
+                  type="checkbox"
+                  checked={frontmatter.toc}
+                  onChange={(e) => updateField("toc", e.target.checked)}
+                  className="h-4 w-4 accent-sky-500"
+                />
+              </label>
+
+              {frontmatter.toc && (
+                <div className="flex items-center justify-between pl-2">
+                  <span className="text-[11px] text-slate-400">
+                    {st.tocDepth}
+                  </span>
+                  <select
+                    value={frontmatter.toc_depth}
+                    onChange={(e) =>
+                      updateField(
+                        "toc_depth",
+                        Number(e.target.value) as TocDepth
+                      )
+                    }
+                    className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white"
+                  >
+                    <option value={1}>{st.tocDepth1}</option>
+                    <option value={2}>{st.tocDepth2}</option>
+                    <option value={3}>{st.tocDepth3}</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex cursor-pointer items-center justify-between">
+                <span>{st.enableBackCover}</span>
+                <input
+                  type="checkbox"
+                  checked={frontmatter.back_cover}
+                  onChange={(e) => updateField("back_cover", e.target.checked)}
+                  className="h-4 w-4 accent-sky-500"
+                />
+              </label>
+
+              {frontmatter.back_cover && (
+                <div className="space-y-2.5 pl-2">
+                  <div>
+                    <label className="mb-1 block text-[11px] text-slate-400">
+                      {st.backCoverText}
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={frontmatter.back_cover_text}
+                      onChange={(e) =>
+                        updateField("back_cover_text", e.target.value)
                       }
-                      onError={onNotice}
+                      className="mdpub-auto-textarea w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
                     />
                   </div>
-                )}
-              </div>
+
+                  <ImageDropField
+                    label={st.backCoverBgImage}
+                    value={frontmatter.back_cover_image}
+                    resolvedSrc={resolvedBackCoverImageSrc}
+                    assetPrefix="asset:shared_backcover_"
+                    uploadPurpose="cover"
+                    sharedAssets={sharedAssets}
+                    onSave={onSaveAsset}
+                    onChangeValue={(val) =>
+                      updateField("back_cover_image", val)
+                    }
+                    onError={onNotice}
+                  />
+                </div>
+              )}
             </div>
+          </div>
         </details>
 
         {/* 6. ヘッダー・フッター・ロゴ */}
@@ -1175,122 +1196,117 @@ export function DocumentSettingsDrawer({
           <summary className="mdpub-settings-summary flex cursor-pointer select-none items-center justify-between px-4 py-2.5 font-semibold text-slate-100 hover:bg-slate-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400">
             <span className="flex items-center gap-2">
               <ImagePlus className="h-3.5 w-3.5 text-sky-400" />
-              ヘッダー・フッター・ロゴ
+              {st.sectionHeaderFooter}
             </span>
             <ChevronRight className="mdpub-details-chevron h-3.5 w-3.5 text-slate-400" />
           </summary>
 
           <div className="space-y-3 px-4 pb-6 pt-1">
-              <div>
-                <div className="mb-1 text-[11px] text-slate-400">
-                  クリックで選択中の欄に挿入:
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {VARIABLE_CHIPS.map((chip) => (
-                    <button
-                      key={chip}
-                      type="button"
-                      onClick={() => handleInsertChip(chip)}
-                      className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300 hover:bg-slate-700"
-                    >
-                      {chip}
-                    </button>
-                  ))}
-                </div>
+            <div>
+              <div className="mb-1 text-[11px] text-slate-400">
+                {st.insertChipHint}
               </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    左ヘッダー
-                  </label>
-                  <input
-                    type="text"
-                    value={frontmatter.header_left}
-                    onFocus={() => setFocusedField("header_left")}
-                    onChange={(e) => updateField("header_left", e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    右ヘッダー
-                  </label>
-                  <input
-                    type="text"
-                    value={frontmatter.header_right}
-                    onFocus={() => setFocusedField("header_right")}
-                    onChange={(e) =>
-                      updateField("header_right", e.target.value)
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    左フッター
-                  </label>
-                  <input
-                    type="text"
-                    value={frontmatter.footer_left}
-                    onFocus={() => setFocusedField("footer_left")}
-                    onChange={(e) => updateField("footer_left", e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    右フッター
-                  </label>
-                  <input
-                    type="text"
-                    value={frontmatter.footer_right}
-                    onFocus={() => setFocusedField("footer_right")}
-                    onChange={(e) =>
-                      updateField("footer_right", e.target.value)
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-1">
-                <ImageDropField
-                  label="ロゴ画像（ブラウザ内保存）"
-                  value={frontmatter.logo}
-                  resolvedSrc={resolvedLogoSrc}
-                  assetPrefix="asset:shared_logo_"
-                  uploadPurpose="logo"
-                  sharedAssets={sharedAssets}
-                  onSave={onSaveAsset}
-                  onChangeValue={(val) => updateField("logo", val)}
-                  onError={onNotice}
-                />
-
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-400">
-                    ロゴの配置位置
-                  </label>
-                  <select
-                    value={frontmatter.logo_position}
-                    onChange={(e) =>
-                      updateField(
-                        "logo_position",
-                        e.target.value as LogoPosition
-                      )
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white"
+              <div className="flex flex-wrap gap-1">
+                {VARIABLE_CHIPS.map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => handleInsertChip(chip)}
+                    className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300 hover:bg-slate-700"
                   >
-                    <option value="cover-and-header">表紙とヘッダー</option>
-                    <option value="cover-only">表紙のみ</option>
-                    <option value="header-only">ヘッダーのみ</option>
-                  </select>
-                </div>
+                    {chip}
+                  </button>
+                ))}
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  {st.headerLeft}
+                </label>
+                <input
+                  type="text"
+                  value={frontmatter.header_left}
+                  onFocus={() => setFocusedField("header_left")}
+                  onChange={(e) => updateField("header_left", e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  {st.headerRight}
+                </label>
+                <input
+                  type="text"
+                  value={frontmatter.header_right}
+                  onFocus={() => setFocusedField("header_right")}
+                  onChange={(e) => updateField("header_right", e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  {st.footerLeft}
+                </label>
+                <input
+                  type="text"
+                  value={frontmatter.footer_left}
+                  onFocus={() => setFocusedField("footer_left")}
+                  onChange={(e) => updateField("footer_left", e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  {st.footerRight}
+                </label>
+                <input
+                  type="text"
+                  value={frontmatter.footer_right}
+                  onFocus={() => setFocusedField("footer_right")}
+                  onChange={(e) => updateField("footer_right", e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <ImageDropField
+                label={st.logoImageLabel}
+                value={frontmatter.logo}
+                resolvedSrc={resolvedLogoSrc}
+                assetPrefix="asset:shared_logo_"
+                uploadPurpose="logo"
+                sharedAssets={sharedAssets}
+                onSave={onSaveAsset}
+                onChangeValue={(val) => updateField("logo", val)}
+                onError={onNotice}
+              />
+
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  {st.logoPosition}
+                </label>
+                <select
+                  value={frontmatter.logo_position}
+                  onChange={(e) =>
+                    updateField("logo_position", e.target.value as LogoPosition)
+                  }
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white"
+                >
+                  <option value="cover-and-header">
+                    {st.logoPosCoverAndHeader}
+                  </option>
+                  <option value="cover-only">{st.logoPosCoverOnly}</option>
+                  <option value="header-only">{st.logoPosHeaderOnly}</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </details>
       </div>
     </aside>

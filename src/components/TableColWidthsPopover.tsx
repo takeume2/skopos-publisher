@@ -11,6 +11,7 @@ import {
   updateSingleColumnWidth,
   type MarkdownTableContext,
 } from "@/lib/table-col-widths";
+import { useI18n } from "./I18nProvider";
 
 interface TableColWidthsPopoverProps {
   tableContext: MarkdownTableContext;
@@ -34,6 +35,9 @@ export function TableColWidthsPopover({
   onResetAuto,
   onClose,
 }: TableColWidthsPopoverProps) {
+  const { locale, dict, format } = useI18n();
+  const tw = dict.tableColWidths;
+
   const initialWidths = useMemo(
     () =>
       tableContext.widths ?? buildEqualColumnWidths(tableContext.columnCount),
@@ -109,8 +113,8 @@ export function TableColWidthsPopover({
   }, [commitWidths, handleResetToAuto]);
 
   const presets = useMemo(
-    () => buildColumnWidthPresets(tableContext.columnCount),
-    [tableContext.columnCount]
+    () => buildColumnWidthPresets(tableContext.columnCount, locale),
+    [locale, tableContext.columnCount]
   );
 
   const handleDividerPointerDown = useCallback(
@@ -228,16 +232,16 @@ export function TableColWidthsPopover({
   return (
     <div
       role="dialog"
-      aria-label="テーブル列幅の調整"
+      aria-label={tw.dialogAria}
       className="rounded-lg border border-slate-700 bg-slate-900/95 p-3.5 text-xs text-slate-200 shadow-2xl backdrop-blur"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-white">
-            テーブル列幅（{tableContext.columnCount}列）
+            {format(tw.heading, { count: tableContext.columnCount })}
           </span>
           <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
-            {tableContext.widths ? "カスタム指定中" : "自動幅"}
+            {tableContext.widths ? tw.statusCustom : tw.statusAuto}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
@@ -248,13 +252,13 @@ export function TableColWidthsPopover({
               className={`inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-300 transition hover:bg-slate-700 hover:text-white ${FOCUS_RING}`}
             >
               <RotateCcw className="h-3 w-3" />
-              <span>自動に戻す</span>
+              <span>{tw.resetAuto}</span>
             </button>
           )}
           <button
             type="button"
             onClick={onClose}
-            aria-label="列幅調整を閉じる"
+            aria-label={tw.closeAria}
             className={`rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white ${FOCUS_RING}`}
           >
             <X className="h-3.5 w-3.5" />
@@ -269,8 +273,12 @@ export function TableColWidthsPopover({
           className="flex h-14 w-full select-none overflow-hidden rounded-md border border-slate-700 bg-slate-950"
         >
           {draftWidths.map((width, idx) => {
-            const label = tableContext.headers[idx] ?? `列${idx + 1}`;
-            const nextLabel = tableContext.headers[idx + 1] ?? `列${idx + 2}`;
+            const label =
+              tableContext.headers[idx] ??
+              format(tw.colFallback, { index: idx + 1 });
+            const nextLabel =
+              tableContext.headers[idx + 1] ??
+              format(tw.colFallback, { index: idx + 2 });
             const isLast = idx === draftWidths.length - 1;
 
             return (
@@ -292,11 +300,14 @@ export function TableColWidthsPopover({
                     role="separator"
                     tabIndex={0}
                     aria-orientation="vertical"
-                    aria-label={`${label}と${nextLabel}の境界を調整`}
+                    aria-label={format(tw.dividerAria, {
+                      left: label,
+                      right: nextLabel,
+                    })}
                     aria-valuemin={MIN_COLUMN_WIDTH_PERCENT}
                     aria-valuemax={100 - MIN_COLUMN_WIDTH_PERCENT}
                     aria-valuenow={width}
-                    title="ドラッグまたは左右キーで列幅を調整（即時反映）"
+                    title={tw.dividerTitle}
                     onPointerDown={(e) => handleDividerPointerDown(idx, e)}
                     onKeyDown={(e) => handleDividerKeyDown(idx, e)}
                     className="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize focus:outline-none"
@@ -308,15 +319,13 @@ export function TableColWidthsPopover({
             );
           })}
         </div>
-        <p className="mt-1 text-[10px] text-slate-400">
-          境界線のドラッグ（離すと即反映）や ← / → キー・プリセットで、開いたままプレビューを見ながら微調整できます。
-        </p>
+        <p className="mt-1 text-[10px] text-slate-400">{tw.hint}</p>
       </div>
 
       {/* ワンクリックプリセット */}
       {presets.length > 0 && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] text-slate-400">プリセット:</span>
+          <span className="text-[10px] text-slate-400">{tw.presetsLabel}</span>
           {presets.map((preset) => (
             <button
               key={preset.id}
@@ -333,7 +342,9 @@ export function TableColWidthsPopover({
       {/* 数値微調整 */}
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {draftWidths.map((width, idx) => {
-          const label = tableContext.headers[idx] ?? `列${idx + 1}`;
+          const label =
+            tableContext.headers[idx] ??
+            format(tw.colFallback, { index: idx + 1 });
           return (
             <label
               key={idx}
@@ -344,7 +355,7 @@ export function TableColWidthsPopover({
               </span>
               <input
                 type="number"
-                aria-label={`${label}の幅(%)`}
+                aria-label={format(tw.widthInputAria, { label })}
                 min={MIN_COLUMN_WIDTH_PERCENT}
                 max={100 - MIN_COLUMN_WIDTH_PERCENT * (draftWidths.length - 1)}
                 step={1}
@@ -378,7 +389,7 @@ export function TableColWidthsPopover({
               className={`inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-300 transition hover:bg-slate-800 hover:text-white ${FOCUS_RING}`}
             >
               <Undo2 className="h-3 w-3" />
-              <span>元に戻す</span>
+              <span>{tw.revertButton}</span>
             </button>
           )}
           <button
@@ -386,7 +397,7 @@ export function TableColWidthsPopover({
             onClick={onClose}
             className={`rounded-md bg-sky-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-sky-500 ${FOCUS_RING}`}
           >
-            完了
+            {dict.common.done}
           </button>
         </div>
       </div>

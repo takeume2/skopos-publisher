@@ -34,8 +34,10 @@ import {
   restorePreviewScrollSnapshot,
 } from "@/lib/preview-scroll";
 import type { UnresolvedAssetRef } from "@/lib/unresolved-assets";
+import type { Locale } from "@/lib/i18n";
 import type { LayoutMode } from "@/hooks/useIndexedDbStorage";
 import type { DocumentFrontmatter } from "@/types/document";
+import { useI18n } from "./I18nProvider";
 
 export interface RenderForPrintResult {
   ok: boolean;
@@ -53,6 +55,7 @@ interface RenderSnapshot {
   markdown: string;
   assets: Record<string, string>;
   assetRestoreNonce: number;
+  locale: Locale;
 }
 
 function isSameRenderSnapshot(
@@ -64,7 +67,8 @@ function isSameRenderSnapshot(
     a.documentId === b.documentId &&
     a.markdown === b.markdown &&
     a.assets === b.assets &&
-    a.assetRestoreNonce === b.assetRestoreNonce
+    a.assetRestoreNonce === b.assetRestoreNonce &&
+    a.locale === b.locale
   );
 }
 
@@ -465,6 +469,8 @@ export function PagedPreviewPane({
   suspendAutoRender = false,
   headerRightExtra,
 }: PagedPreviewPaneProps) {
+  const { locale, dict, format } = useI18n();
+  const pv = dict.preview;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const previewHostRef = useRef<HTMLDivElement>(null);
   const measureHostRef = useRef<HTMLDivElement>(null);
@@ -484,12 +490,14 @@ export function PagedPreviewPane({
     markdown,
     assets,
     assetRestoreNonce,
+    locale,
   });
   currentSnapshotRef.current = {
     documentId,
     markdown,
     assets,
     assetRestoreNonce,
+    locale,
   };
   const dragDepthRef = useRef<number>(0);
   const activeDropTargetRef = useRef<HTMLElement | null>(null);
@@ -557,7 +565,7 @@ export function PagedPreviewPane({
       if (!host || !measureHost) {
         return Promise.resolve({
           ok: false,
-          error: "プレビュー領域が初期化されていません。",
+          error: pv.notInitializedError,
         });
       }
 
@@ -567,6 +575,7 @@ export function PagedPreviewPane({
         markdown: sourceMarkdown,
         assets,
         assetRestoreNonce: currentSnapshotRef.current.assetRestoreNonce,
+        locale,
       };
       if (inFlightPreviewerRef.current) {
         try {
@@ -606,7 +615,9 @@ export function PagedPreviewPane({
             return { ok: false, cancelled: true };
           }
 
-          const compiled = await compileMarkdownToHtml(sourceMarkdown, assets);
+          const compiled = await compileMarkdownToHtml(sourceMarkdown, assets, {
+            locale,
+          });
           await yieldToMain();
 
           if (currentRenderId !== renderIdRef.current) {
@@ -732,9 +743,7 @@ export function PagedPreviewPane({
           }
           console.error("Paged.js rendering error:", err);
           const message =
-            err instanceof Error
-              ? err.message
-              : "組版レンダリング中にエラーが発生しました。";
+            err instanceof Error ? err.message : pv.renderErrorFallback;
           setRenderError(message);
           return { ok: false, error: message };
         } finally {
@@ -758,7 +767,7 @@ export function PagedPreviewPane({
       };
       return promise;
     },
-    [assets]
+    [assets, locale, pv.notInitializedError, pv.renderErrorFallback]
   );
 
   useImperativeHandle(
@@ -1065,8 +1074,8 @@ export function PagedPreviewPane({
           <button
             type="button"
             onClick={() => setZoom((z) => Math.max(50, z - 10))}
-            title="縮小"
-            aria-label="プレビューを縮小"
+            title={pv.zoomOutTitle}
+            aria-label={pv.zoomOutAria}
             className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <ZoomOut className="h-3.5 w-3.5" />
@@ -1074,7 +1083,7 @@ export function PagedPreviewPane({
 
           <input
             type="range"
-            aria-label="プレビュー倍率"
+            aria-label={pv.zoomRangeAria}
             min={50}
             max={200}
             step={5}
@@ -1086,7 +1095,7 @@ export function PagedPreviewPane({
           <button
             type="button"
             onClick={() => setZoom(100)}
-            title="100% にリセット"
+            title={pv.zoomResetTitle}
             className="min-w-[44px] rounded bg-zinc-800 px-1.5 py-0.5 text-center font-mono tabular-nums text-[11px] hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             {zoom}%
@@ -1095,8 +1104,8 @@ export function PagedPreviewPane({
           <button
             type="button"
             onClick={() => setZoom((z) => Math.min(200, z + 10))}
-            title="拡大"
-            aria-label="プレビューを拡大"
+            title={pv.zoomInTitle}
+            aria-label={pv.zoomInAria}
             className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <ZoomIn className="h-3.5 w-3.5" />
@@ -1107,35 +1116,35 @@ export function PagedPreviewPane({
           <button
             type="button"
             onClick={handleFitWidth}
-            title="幅に合わせる (Fit Width)"
+            title={pv.fitWidthTitle}
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <Maximize2 className="h-3 w-3" />
-            <span className="preview-cq-label">幅に合わせる</span>
+            <span className="preview-cq-label">{pv.fitWidth}</span>
           </button>
 
           <button
             type="button"
             onClick={handleFitPage}
-            title="ページ全体を表示 (Fit Page)"
+            title={pv.fitPageTitle}
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             <Minimize2 className="h-3 w-3" />
-            <span className="preview-cq-label">全体表示</span>
+            <span className="preview-cq-label">{pv.fitPage}</span>
           </button>
         </div>
 
         <div className="flex items-center gap-2">
           <div
             role="group"
-            aria-label="ページ表示レイアウト切替"
+            aria-label={pv.layoutGroupAria}
             className="flex items-center rounded border border-zinc-700 bg-zinc-950 p-0.5"
           >
             <button
               type="button"
               aria-pressed={layoutMode === "single"}
               onClick={() => onLayoutModeChange("single")}
-              title="単ページ縦並び"
+              title={pv.layoutSingleTitle}
               className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
                 layoutMode === "single"
                   ? "bg-zinc-800 text-white"
@@ -1143,13 +1152,13 @@ export function PagedPreviewPane({
               }`}
             >
               <FileText className="h-3 w-3" />
-              <span>単ページ</span>
+              <span>{pv.layoutSingle}</span>
             </button>
             <button
               type="button"
               aria-pressed={layoutMode === "spread"}
               onClick={() => onLayoutModeChange("spread")}
-              title="見開き表示"
+              title={pv.layoutSpreadTitle}
               className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
                 layoutMode === "spread"
                   ? "bg-zinc-800 text-white"
@@ -1157,7 +1166,7 @@ export function PagedPreviewPane({
               }`}
             >
               <BookOpen className="h-3 w-3" />
-              <span>見開き</span>
+              <span>{pv.layoutSpread}</span>
             </button>
           </div>
 
@@ -1168,7 +1177,7 @@ export function PagedPreviewPane({
             <button
               type="button"
               disabled={currentPage <= 1}
-              aria-label="前のページへ"
+              aria-label={pv.prevPageAria}
               onClick={() => scrollToPage(currentPage - 1)}
               className="rounded p-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
@@ -1177,7 +1186,7 @@ export function PagedPreviewPane({
             <input
               type="text"
               inputMode="numeric"
-              aria-label="表示ページ番号"
+              aria-label={pv.pageNumberAria}
               value={pageInput}
               onChange={(e) => setPageInput(e.target.value)}
               onBlur={() => {
@@ -1191,12 +1200,12 @@ export function PagedPreviewPane({
               className="w-10 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-center font-mono tabular-nums text-[11px] text-white focus-visible:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             />
             <span className="tabular-nums text-[11px] text-zinc-400">
-              / {totalPages} ページ
+              {format(pv.totalPagesSuffix, { total: totalPages })}
             </span>
             <button
               type="button"
               disabled={currentPage >= totalPages}
-              aria-label="次のページへ"
+              aria-label={pv.nextPageAria}
               onClick={() => scrollToPage(currentPage + 1)}
               className="rounded p-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
@@ -1210,7 +1219,9 @@ export function PagedPreviewPane({
             <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/50 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">
               <ShieldAlert className="h-3 w-3" />
               <span>
-                透かし: {frontmatter.confidential_label || "CONFIDENTIAL"}
+                {format(pv.watermarkPrefix, {
+                  label: frontmatter.confidential_label || "CONFIDENTIAL",
+                })}
               </span>
             </span>
           )}
@@ -1219,7 +1230,7 @@ export function PagedPreviewPane({
             type="button"
             aria-pressed={showMarginGuides}
             onClick={() => onToggleMarginGuides(!showMarginGuides)}
-            title="余白ガイド線の表示切替"
+            title={pv.marginGuidesTitle}
             className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
               showMarginGuides
                 ? "border-sky-500/60 bg-sky-500/15 text-sky-300"
@@ -1227,7 +1238,7 @@ export function PagedPreviewPane({
             }`}
           >
             <Grid className="h-3 w-3" />
-            <span className="preview-cq-label">余白ガイド</span>
+            <span className="preview-cq-label">{pv.marginGuides}</span>
           </button>
 
           <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-zinc-300">
@@ -1237,7 +1248,7 @@ export function PagedPreviewPane({
               onChange={(e) => onToggleAutoUpdate(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             />
-            <span>自動更新</span>
+            <span>{pv.autoUpdate}</span>
           </label>
 
           <button
@@ -1251,7 +1262,7 @@ export function PagedPreviewPane({
             ) : (
               <RefreshCw className="h-3 w-3" />
             )}
-            <span>再描画</span>
+            <span>{pv.rerender}</span>
           </button>
 
           {headerRightExtra}
@@ -1267,8 +1278,12 @@ export function PagedPreviewPane({
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
             <span className="truncate">
               {onDropFilesOnPreview || onDropFileOnPlaceholder
-                ? `未解決の画像が ${unresolvedAssets.length} 件あります — 画像ファイルをプレビューへドロップで一括復元（各枠へ直接ドロップで個別置換）`
-                : `未解決の画像が ${unresolvedAssets.length} 件あります — メインウィンドウのプレビューで画像をドロップして復元してください`}
+                ? format(pv.unresolvedBannerInteractive, {
+                    count: unresolvedAssets.length,
+                  })
+                : format(pv.unresolvedBannerReadonly, {
+                    count: unresolvedAssets.length,
+                  })}
             </span>
           </div>
         </div>
@@ -1288,7 +1303,7 @@ export function PagedPreviewPane({
             <button
               type="button"
               onClick={onDismissRestoreNotice}
-              aria-label="復元通知を閉じる"
+              aria-label={pv.dismissRestoreNoticeAria}
               className="rounded px-1.5 py-0.5 text-emerald-300 hover:bg-emerald-900/60 hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
               ×
@@ -1302,7 +1317,7 @@ export function PagedPreviewPane({
           role="alert"
           className="no-print border-b border-red-800 bg-red-950/80 px-4 py-2 text-xs text-red-200"
         >
-          組版エラー: {renderError}
+          {format(pv.renderErrorPrefix, { error: renderError })}
         </div>
       )}
 
@@ -1331,8 +1346,10 @@ export function PagedPreviewPane({
               <Upload className="h-3.5 w-3.5 text-sky-400" />
               <span>
                 {unresolvedAssets.length > 0
-                  ? `ドロップして未解決画像（${unresolvedAssets.length}件）を復元`
-                  : "ドロップされた画像を未解決プレースホルダと照合します"}
+                  ? format(pv.dropToRestoreCount, {
+                      count: unresolvedAssets.length,
+                    })
+                  : pv.dropToMatch}
               </span>
             </div>
           </div>
@@ -1343,7 +1360,10 @@ export function PagedPreviewPane({
             <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/60 bg-slate-900/95 px-3 py-1 text-[11px] tabular-nums text-sky-200 shadow">
               <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none text-sky-400" />
               <span>
-                画像を復元中... ({restoreProgress.processed} / {restoreProgress.total})
+                {format(pv.restoringProgress, {
+                  processed: restoreProgress.processed,
+                  total: restoreProgress.total,
+                })}
               </span>
             </div>
           </div>
@@ -1353,7 +1373,7 @@ export function PagedPreviewPane({
           <div className="no-print pointer-events-none sticky top-3 z-10 flex justify-end px-4">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900/90 px-3 py-1 text-[11px] text-sky-300 shadow">
               <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />
-              <span>ページネーション計算中...</span>
+              <span>{pv.calculatingPagination}</span>
             </div>
           </div>
         )}

@@ -1,4 +1,5 @@
 import type { LayoutMode } from "@/hooks/useIndexedDbStorage";
+import { isLocale, type Locale } from "@/lib/i18n";
 
 export const PREVIEW_SYNC_CHANNEL_NAME = "skopos-preview-sync:v1";
 export const PREVIEW_SESSION_STORAGE_KEY = "skopos:preview_session_id:v1";
@@ -7,6 +8,7 @@ export interface SyncedPreviewPrefs {
   autoUpdate: boolean;
   showMarginGuides: boolean;
   layoutMode: LayoutMode;
+  locale?: Locale;
   skipPrintHeaderFooterNotice?: boolean;
   enablePreflightCheck?: boolean;
   preflightNgWords?: string;
@@ -128,6 +130,12 @@ function isSyncedPreviewPrefs(value: unknown): value is SyncedPreviewPrefs {
     typeof obj.autoUpdate !== "boolean" ||
     typeof obj.showMarginGuides !== "boolean" ||
     !isLayoutMode(obj.layoutMode)
+  ) {
+    return false;
+  }
+  if (
+    obj.locale !== undefined &&
+    !isLocale(obj.locale)
   ) {
     return false;
   }

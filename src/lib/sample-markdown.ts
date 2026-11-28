@@ -1,3 +1,5 @@
+import type { Locale } from "./i18n";
+
 export const SAMPLE_MARKDOWN = `---
 title: "次世代クラウドプラットフォーム\\n技術・セキュリティ評価報告書"
 subtitle: "アーキテクチャ設計・セキュリティ診断結果・パフォーマンス評価"
@@ -171,3 +173,181 @@ export function calculatePrintableHeight(metrics: PageMetrics): number {
 
 [^1]: Chrome / Edge の印刷ダイアログでは「詳細設定」内の「背景のグラフィック」を有効にすることで、表紙・中扉・グラフ・コールアウトの背景色が正確に出力されます。
 `;
+
+export const SAMPLE_MARKDOWN_EN = `---
+title: "Next-Gen Cloud Platform\\nTechnical & Security Assessment Report"
+subtitle: "Architecture Review, Security Findings, and Performance Benchmarks"
+recipient: "Sample Enterprise Ltd. — Platform Engineering Division"
+author: "System Architecture Office"
+date: "2026-11-26"
+page_size: "A4"
+orientation: "portrait"
+cover: true
+cover_image: ""
+cover_overlay: "light-fade"
+back_cover: true
+back_cover_image: ""
+back_cover_text: |-
+  Sample Technology Inc.
+  System Architecture Office
+  Colombo, Sri Lanka
+  Copyright (c) 2026 Sample Technology Inc. All Rights Reserved.
+toc: true
+toc_depth: 3
+theme: "business"
+heading_highlight: "tinted"
+confidential_mode: "none"
+confidential_label: "CONFIDENTIAL"
+logo: ""
+logo_position: "cover-and-header"
+header_left: "{title}"
+header_right: "{date}"
+footer_left: "{author}"
+footer_right: "{page} / {pages}"
+---
+
+<!-- chapter -->
+
+# 1. Executive Summary
+
+An overview of architecture quality, security assessment findings, and performance benchmarks for the next-generation cloud platform.
+
+<!-- /chapter -->
+
+## 1.1 Overall Assessment & Key KPIs
+
+This report summarizes the technical and security evaluation of our client-side document publishing engine and distributed microservices platform. Key metrics are shown below.
+
+<!-- cards -->
+
+- Total Checks | 42 | -8 vs previous | info
+- Critical & High | 7 | Critical 2 / High 5 | critical
+- Security Compliance | 92.9% | Target >= 90% | success
+- Target Availability (SLA) | 99.95% | Multi-AZ verified | primary
+
+<!-- /cards -->
+
+> [!SUMMARY] Executive Assessment
+> Overall design quality and automation maturity are strong, with **92.9%** compliance exceeding the 90% target. However, 7 :Critical: / :High: findings related to token validation and authorization must be remediated before production launch.
+
+## 1.2 Remediation Progress
+
+Current remediation progress across all 42 identified items is illustrated below.
+
+<!-- colorbar: Completed=28, In Progress=9, Pending=5 -->
+
+> [!SUCCESS] Core Compliance Verified
+> End-to-end TLS 1.3 encryption, tamper-evident audit logs, and local-first browser storage fully satisfy internal security standards.
+
+> [!NOTE] About This Sample Document
+> This document is typeset directly from Markdown and YAML frontmatter. Open the "Settings" panel on the right to customize themes, colors, watermarks, and export filename rules in real time.
+
+<!-- chapter -->
+
+# 2. Security Assessment & Risk Analysis
+
+Breakdown of the 42 findings discovered during vulnerability testing and configuration audits, along with prioritized remediation guidance.
+
+<!-- /chapter -->
+
+## 2.1 Findings by Severity
+
+The distribution of all 42 findings by severity is shown in the donut chart below.
+
+<!-- donut(Findings by Severity): Critical=2, High=5, Medium=12, Low=18, Info=5 -->
+
+Key findings and current remediation status:
+
+| ID | Finding | Severity | Status | Target Window |
+| :--- | :--- | :---: | :---: | :--- |
+| SEC-001 | Missing authorization check on admin API | :Critical: | :Active: | Before Launch |
+| SEC-002 | Unbounded JWT expiration clock skew | :High: | :Active: | Before Launch |
+| SEC-003 | Hardened session cookie attributes | :Medium: | :Final: | Completed |
+| SEC-004 | Redact verbose error stack traces | :Low: | :Draft: | Next Sprint |
+| SEC-005 | Document audit log retention policy | :Info: | :Closed: | Recorded |
+
+## 2.2 JWT Expiration Validation Gap :High:
+
+Several internal service endpoints did not enforce an upper bound on clock skew when validating JWT \`exp\` claims. Restrict allowed skew to 60 seconds or less to prevent replay of expired tokens.
+
+> [!CAUTION] Mandatory Remediation Before Production
+> Deploying with unresolved :Critical: or :High: findings may expose unauthorized access or privilege escalation paths. Complete remediation and re-verification prior to release sign-off.
+
+## 2.3 Tamper-Evident Audit Logging <!-- hl: info -->
+
+Authentication events and administrative actions are streamed in real time to append-only hash-chained storage to guarantee post-incident integrity.
+
+> [!WARNING] Embedding Large High-Resolution Images
+> Embedding many high-resolution images may add a few seconds to browser print preview generation. Keeping logos and cover backgrounds under 1 MB is recommended.
+
+## 2.4 Pre-Release Checklist
+
+- [x] Verify GFM tables, severity badges, and task lists
+- [x] Verify KPI cards, color bars, and donut/pie charts
+- [x] Verify syntax-highlighted code blocks and KaTeX equations
+- [ ] Confirm "Background graphics" is enabled in the browser print dialog[^1]
+
+<!-- chapter -->
+
+# 3. Architecture & Implementation Example
+
+Latency breakdown, mathematical pagination model, and sample TypeScript implementation.
+
+<!-- /chapter -->
+
+## 3.1 Request Latency Breakdown
+
+Phase-by-phase breakdown of a representative transaction (90 ms average latency):
+
+<!-- pie(Request Latency Breakdown [ms]): Auth=12, App Logic=28, DB Query=35, Network=15 -->
+
+| Component | Target Latency | Peak Memory | Persistence | Notes |
+| :--- | :---: | :---: | :--- | :--- |
+| Markdown Parser | < 50 ms | 32 MB | In-memory | unified / remark / rehype |
+| Paged.js Layout Engine | < 800 ms | 128 MB | Isolated DOM | Async chunked layout |
+| Local Storage | < 10 ms | 50 MB | IndexedDB | Debounced auto-save |
+
+## 3.2 Pagination Cost Model
+
+The layout engine evaluates candidate page break score $S$ using orphan penalty $P_{\\text{orphan}}$ and margin balance $B_{\\text{margin}}$:
+
+$$
+S = \\sum_{i=1}^{N} \\left( \\alpha \\cdot P_{\\text{orphan}}(i) + \\beta \\cdot \\left| H_{\\text{page}} - \\sum_{j \\in i} h_j \\right| \\right)
+$$
+
+where $H_{\\text{page}}$ is printable height and $h_j$ is the height of each block element.
+
+<!-- pagebreak -->
+
+## 3.3 Code Example
+
+Example of a titled code block (\`\`\`ts:src/lib/formatter.ts):
+
+\`\`\`ts:src/lib/formatter.ts
+export interface PageMetrics {
+  widthMm: number;
+  heightMm: number;
+  marginMm: number;
+}
+
+export function calculatePrintableHeight(metrics: PageMetrics): number {
+  const usableHeight = metrics.heightMm - metrics.marginMm * 2;
+  if (usableHeight <= 0) {
+    throw new Error("Invalid page margin configuration");
+  }
+  return usableHeight;
+}
+\`\`\`
+
+> [!TIP] Page Breaks & Outline Navigation
+> Insert \`<!-- pagebreak -->\` or \`\\newpage\` to force a page break anywhere. Use the "Outline" tab in the left sidebar to jump directly to any heading.
+
+> [!IMPORTANT] Recommended PDF Print Settings
+> When exporting PDF, select "Destination: Save as PDF", turn "Background graphics" ON, and turn browser "Headers and footers" OFF.
+
+[^1]: In Chrome / Edge print settings, enabling "Background graphics" under "More settings" ensures covers, chapter dividers, charts, and callout backgrounds render accurately.
+`;
+
+export function getSampleMarkdown(locale: Locale = "ja"): string {
+  return locale === "en" ? SAMPLE_MARKDOWN_EN : SAMPLE_MARKDOWN;
+}

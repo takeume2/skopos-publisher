@@ -16,6 +16,8 @@ import {
   Upload,
 } from "lucide-react";
 import type { SaveStatus } from "@/hooks/useIndexedDbStorage";
+import type { Locale } from "@/lib/i18n";
+import { useI18n } from "./I18nProvider";
 
 export type ViewMode = "editor" | "split" | "preview";
 
@@ -37,6 +39,8 @@ interface TopToolbarProps {
   onToggleSidebar: () => void;
   isSettingsOpen: boolean;
   onToggleSettings: () => void;
+  locale?: Locale;
+  onLocaleChange?: (locale: Locale) => void;
 }
 
 const FOCUS_RING =
@@ -60,7 +64,13 @@ export function TopToolbar({
   onToggleSidebar,
   isSettingsOpen,
   onToggleSettings,
+  locale: propLocale,
+  onLocaleChange,
 }: TopToolbarProps) {
+  const { locale: ctxLocale, dict } = useI18n();
+  const activeLocale = propLocale ?? ctxLocale;
+  const tb = dict.toolbar;
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,8 +96,8 @@ export function TopToolbar({
           type="button"
           onClick={onToggleSidebar}
           aria-expanded={isSidebarOpen}
-          aria-label="サイドバー（文書・見出し・共通画像）を開閉"
-          title="サイドバー（文書・見出し・共通画像）を開閉"
+          aria-label={tb.toggleSidebarAria}
+          title={tb.toggleSidebarAria}
           className={`rounded-md border p-1.5 transition ${FOCUS_RING} ${
             isSidebarOpen
               ? "border-sky-500/60 bg-sky-600/20 text-sky-300"
@@ -108,19 +118,19 @@ export function TopToolbar({
         <span className="text-slate-700">/</span>
 
         <span className="max-w-[200px] truncate text-sm font-medium text-slate-200">
-          {title || "無題のドキュメント"}
+          {title || dict.common.untitledDocument}
         </span>
 
         <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
           {saveStatus === "saving" || saveStatus === "loading" ? (
             <>
               <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none text-amber-400" />
-              <span>編集中...</span>
+              <span>{tb.editingStatus}</span>
             </>
           ) : (
             <>
               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-              <span>保存済み</span>
+              <span>{tb.savedStatus}</span>
             </>
           )}
         </span>
@@ -133,25 +143,25 @@ export function TopToolbar({
             className="inline-flex items-center gap-1.5 rounded-md border border-sky-500/50 bg-sky-500/15 px-2.5 py-1 text-xs text-sky-200"
           >
             <ExternalLink className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-            <span className="font-medium">別ウィンドウ表示中</span>
+            <span className="font-medium">{tb.popoutActiveLabel}</span>
             {onFocusPopoutPreview && (
               <button
                 type="button"
                 onClick={onFocusPopoutPreview}
-                title="プレビューウィンドウを前面に表示"
+                title={tb.focusPopoutTitle}
                 className={`rounded px-2 py-0.5 text-[11px] font-medium text-sky-200 transition hover:bg-sky-500/25 hover:text-white ${FOCUS_RING}`}
               >
-                前面へ
+                {tb.focusPopoutButton}
               </button>
             )}
             {onDockPopoutPreview && (
               <button
                 type="button"
                 onClick={onDockPopoutPreview}
-                title="プレビューをメイン画面へ戻す"
+                title={tb.dockPopoutTitle}
                 className={`rounded bg-sky-600/50 px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-sky-600/80 ${FOCUS_RING}`}
               >
-                メインに戻す
+                {tb.dockPopoutButton}
               </button>
             )}
           </div>
@@ -159,7 +169,7 @@ export function TopToolbar({
           <>
             <div
               role="group"
-              aria-label="表示モード切替"
+              aria-label={tb.viewModeGroupAria}
               className="flex items-center rounded-md border border-slate-700 bg-slate-950 p-0.5"
             >
               <button
@@ -173,7 +183,7 @@ export function TopToolbar({
                 }`}
               >
                 <FileCode2 className="h-3.5 w-3.5" />
-                <span className="hidden md:inline">エディタのみ</span>
+                <span className="hidden md:inline">{tb.viewEditorOnly}</span>
               </button>
               <button
                 type="button"
@@ -186,7 +196,7 @@ export function TopToolbar({
                 }`}
               >
                 <Columns2 className="h-3.5 w-3.5" />
-                <span className="hidden md:inline">分割表示</span>
+                <span className="hidden md:inline">{tb.viewSplit}</span>
               </button>
               <button
                 type="button"
@@ -199,7 +209,7 @@ export function TopToolbar({
                 }`}
               >
                 <Eye className="h-3.5 w-3.5" />
-                <span className="hidden md:inline">プレビューのみ</span>
+                <span className="hidden md:inline">{tb.viewPreviewOnly}</span>
               </button>
             </div>
 
@@ -207,8 +217,8 @@ export function TopToolbar({
               <button
                 type="button"
                 onClick={onOpenPopoutPreview}
-                title="プレビューを別ウィンドウに分離"
-                aria-label="プレビューを別ウィンドウで開く"
+                title={tb.openPopoutTitle}
+                aria-label={tb.openPopoutAria}
                 className={`rounded-md border border-slate-700 bg-slate-800 p-1.5 text-slate-300 transition hover:border-sky-500/60 hover:bg-slate-700 hover:text-white ${FOCUS_RING}`}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -242,11 +252,11 @@ export function TopToolbar({
         <button
           type="button"
           onClick={() => folderInputRef.current?.click()}
-          title="原稿フォルダ（.md＋画像一式）を読み込む"
+          title={tb.importFolderTitle}
           className={`inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 ${FOCUS_RING}`}
         >
           <FolderOpen className="h-3.5 w-3.5 text-sky-400" />
-          <span className="hidden sm:inline">フォルダ読込</span>
+          <span className="hidden sm:inline">{tb.importFolder}</span>
         </button>
 
         <button
@@ -255,7 +265,7 @@ export function TopToolbar({
           className={`inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 ${FOCUS_RING}`}
         >
           <Upload className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">.md読込</span>
+          <span className="hidden sm:inline">{tb.importMd}</span>
         </button>
 
         <button
@@ -264,8 +274,43 @@ export function TopToolbar({
           className={`inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 ${FOCUS_RING}`}
         >
           <Download className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">.md保存</span>
+          <span className="hidden sm:inline">{tb.exportMd}</span>
         </button>
+
+        {onLocaleChange && (
+          <div
+            role="group"
+            aria-label={tb.languageGroupAria}
+            className="flex items-center rounded-md border border-slate-700 bg-slate-950 p-0.5 text-[11px]"
+          >
+            <button
+              type="button"
+              aria-pressed={activeLocale === "ja"}
+              title={tb.languageJaTitle}
+              onClick={() => onLocaleChange("ja")}
+              className={`rounded px-1.5 py-1 font-semibold transition ${FOCUS_RING} ${
+                activeLocale === "ja"
+                  ? "bg-slate-800 text-white"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              JA
+            </button>
+            <button
+              type="button"
+              aria-pressed={activeLocale === "en"}
+              title={tb.languageEnTitle}
+              onClick={() => onLocaleChange("en")}
+              className={`rounded px-1.5 py-1 font-semibold transition ${FOCUS_RING} ${
+                activeLocale === "en"
+                  ? "bg-slate-800 text-white"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              EN
+            </button>
+          </div>
+        )}
 
         <button
           type="button"
@@ -278,7 +323,7 @@ export function TopToolbar({
           }`}
         >
           <Settings className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">設定</span>
+          <span className="hidden sm:inline">{tb.settings}</span>
         </button>
 
         <button
@@ -293,7 +338,7 @@ export function TopToolbar({
           ) : (
             <Printer className="h-3.5 w-3.5" />
           )}
-          <span>{isPreparingPrint ? "組版準備中..." : "PDF出力 / 印刷"}</span>
+          <span>{isPreparingPrint ? tb.preparingPrint : tb.printPdf}</span>
         </button>
       </div>
     </header>

@@ -3,6 +3,7 @@ import remarkParse from "remark-parse";
 import remarkFrontmatter from "remark-frontmatter";
 import { visit } from "unist-util-visit";
 import { parseMarkdownDocument } from "./frontmatter";
+import { getDictionary, type Locale } from "./i18n";
 import { isSupportedImageFile } from "./image-processing";
 
 export type UnresolvedAssetSource = "body" | "frontmatter";
@@ -25,6 +26,8 @@ export interface UnresolvedAssetRef {
 export interface ExtractUnresolvedAssetsOptions {
   /** Include unresolved frontmatter asset: references (logo, cover_image, back_cover_image). Default: false. */
   includeFrontmatter?: boolean;
+  /** Locale for frontmatter field labels. Default: "ja". */
+  locale?: Locale;
 }
 
 export interface MatchedAssetDrop {
@@ -217,10 +220,11 @@ export function extractUnresolvedAssetRefs(
 
   if (options.includeFrontmatter) {
     const { frontmatter } = parseMarkdownDocument(markdown);
+    const pf = getDictionary(options.locale ?? "ja").preflight;
     for (const [label, key] of [
-      ["ロゴ画像", frontmatter.logo],
-      ["表紙の背景画像", frontmatter.cover_image],
-      ["裏表紙の背景画像", frontmatter.back_cover_image],
+      [pf.frontmatterLogo, frontmatter.logo],
+      [pf.frontmatterCoverImage, frontmatter.cover_image],
+      [pf.frontmatterBackCoverImage, frontmatter.back_cover_image],
     ] as const) {
       if (key && key.trim().startsWith("asset:")) {
         recordRef(key, label, "frontmatter");

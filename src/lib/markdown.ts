@@ -18,6 +18,7 @@ import type {
   TocEntry,
 } from "@/types/document";
 import { parseMarkdownDocument } from "./frontmatter";
+import { formatMessage, getDictionary, type Locale } from "./i18n";
 import {
   formatColorBarNumber,
   formatColorBarPercent,
@@ -931,8 +932,10 @@ function buildUnresolvedAssetPlaceholderNode(
   alt: string,
   widthCss: string | null,
   heightCss: string | null,
-  mode: "block" | "inline" = "block"
+  mode: "block" | "inline" = "block",
+  locale: Locale = "ja"
 ): Element {
+  const mdDict = getDictionary(locale).markdown;
   const displayName = getAssetDisplayName(assetKey, alt);
   const styleParts: string[] = [];
   if (widthCss) {
@@ -952,7 +955,9 @@ function buildUnresolvedAssetPlaceholderNode(
     dataAssetKey: assetKey,
     dataAssetLabel: displayName,
     role: "group",
-    ariaLabel: `未解決の画像: ${displayName}（画像をドロップして復元）`,
+    ariaLabel: formatMessage(mdDict.unresolvedPlaceholderAria, {
+      name: displayName,
+    }),
   };
   if (styleParts.length > 0) {
     properties.style = `${styleParts.join("; ")};`;
@@ -1029,7 +1034,7 @@ function buildUnresolvedAssetPlaceholderNode(
             type: "element",
             tagName: "span",
             properties: { className: ["doc-asset-placeholder-hint"] },
-            children: [{ type: "text", value: "画像をドロップして復元" }],
+            children: [{ type: "text", value: mdDict.unresolvedPlaceholderHint }],
           },
         ],
       },
@@ -1047,7 +1052,10 @@ const BLOCK_PLACEHOLDER_PARENT_TAGS = new Set([
   "figure",
 ]);
 
-function rehypeResolveAssets(assets: Record<string, string>) {
+function rehypeResolveAssets(
+  assets: Record<string, string>,
+  locale: Locale = "ja"
+) {
   return () => (tree: Root) => {
     visit(tree, "element", (node: Element, index, parent) => {
       if (node.tagName !== "img") return;
@@ -1093,7 +1101,8 @@ function rehypeResolveAssets(assets: Record<string, string>) {
             alt,
             widthCss,
             heightCss,
-            mode
+            mode,
+            locale
           );
           return;
         }
@@ -1485,8 +1494,13 @@ function formatTocTextHtml(text: string): string {
   return result;
 }
 
-function buildTocHtml(fm: DocumentFrontmatter, entries: TocEntry[]): string {
+function buildTocHtml(
+  fm: DocumentFrontmatter,
+  entries: TocEntry[],
+  locale: Locale = "ja"
+): string {
   if (!fm.toc) return "";
+  const mdDict = getDictionary(locale).markdown;
 
   const itemsHtml =
     entries.length > 0
@@ -1502,11 +1516,13 @@ function buildTocHtml(fm: DocumentFrontmatter, entries: TocEntry[]): string {
             </li>`
           )
           .join("")
-      : `<li class="toc-empty">見出し（H1〜H${fm.toc_depth}）が見つかりません。</li>`;
+      : `<li class="toc-empty">${escapeHtml(
+          formatMessage(mdDict.tocEmpty, { depth: fm.toc_depth })
+        )}</li>`;
 
   return `
-    <nav class="doc-toc" aria-label="目次">
-      <h2 class="toc-heading">目次</h2>
+    <nav class="doc-toc" aria-label="${escapeHtml(mdDict.tocAria)}">
+      <h2 class="toc-heading">${escapeHtml(mdDict.tocHeading)}</h2>
       <ul class="toc-list">
         ${itemsHtml}
       </ul>
@@ -2370,10 +2386,16 @@ function rehypeTableColWidths() {
   };
 }
 
+export interface CompileMarkdownOptions {
+  locale?: Locale;
+}
+
 export async function compileMarkdownToHtml(
   markdown: string,
-  assets: Record<string, string> = {}
+  assets: Record<string, string> = {},
+  options: CompileMarkdownOptions = {}
 ): Promise<CompiledDocument> {
+  const locale = options.locale ?? "ja";
   const { frontmatter, body } = parseMarkdownDocument(markdown);
   const tocEntries: TocEntry[] = [];
 
@@ -2395,7 +2417,7 @@ export async function compileMarkdownToHtml(
     .use(rehypeSafeHeadingIds)
     .use(createTocCollector(frontmatter.toc_depth, tocEntries))
     .use(rehypeChapterCovers)
-    .use(rehypeResolveAssets(assets))
+    .use(rehypeResolveAssets(assets, locale))
     .use(rehypeCallouts)
     .use(rehypeBadges)
     .use(rehypeColorBars)
@@ -2420,7 +2442,7 @@ export async function compileMarkdownToHtml(
     : "";
 
   const coverHtml = buildCoverHtml(frontmatter, logoSrc, coverImageSrc).trim();
-  const tocHtml = buildTocHtml(frontmatter, tocEntries).trim();
+  const tocHtml = buildTocHtml(frontmatter, tocEntries, locale).trim();
   const backCoverHtml = buildBackCoverHtml(
     frontmatter,
     backCoverImageSrc

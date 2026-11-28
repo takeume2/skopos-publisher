@@ -90,6 +90,7 @@ describe("preview-sync utilities (#64)", () => {
       parentWindowName: "skopos_editor_sess-1",
       prefs: {
         ...validSync.prefs,
+        locale: "en",
         skipPrintHeaderFooterNotice: true,
         enablePreflightCheck: true,
         preflightNgWords: "社外秘, ProjectX",
@@ -98,6 +99,15 @@ describe("preview-sync utilities (#64)", () => {
     expect(parsePreviewSyncMessage(validSyncWithPrintPrefs, "sess-1")).toEqual(
       validSyncWithPrintPrefs
     );
+    expect(
+      parsePreviewSyncMessage(
+        {
+          ...validSync,
+          prefs: { ...validSync.prefs, locale: "fr" },
+        },
+        "sess-1"
+      )
+    ).toBeNull();
     expect(
       parsePreviewSyncMessage(
         {

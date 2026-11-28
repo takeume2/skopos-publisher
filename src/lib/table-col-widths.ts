@@ -1,3 +1,5 @@
+import { getDictionary, type Locale } from "./i18n";
+
 export const COL_WIDTHS_COMMENT_REGEX =
   /<!--\s*col-widths\s*:\s*([^>]*?)\s*-->/gi;
 
@@ -181,31 +183,33 @@ export function buildEqualColumnWidths(columnCount: number): number[] {
 }
 
 export function buildColumnWidthPresets(
-  columnCount: number
+  columnCount: number,
+  locale: Locale = "ja"
 ): ColumnWidthPreset[] {
   if (columnCount < 2) return [];
+  const t = getDictionary(locale).tableColWidths;
 
   const presets: ColumnWidthPreset[] = [
     {
       id: "equal",
-      label: "均等",
+      label: t.presetEqual,
       widths: buildEqualColumnWidths(columnCount),
     },
   ];
 
   if (columnCount === 2) {
     presets.push(
-      { id: "narrow-left", label: "左を狭く", widths: [25, 75] },
-      { id: "narrow-right", label: "右を狭く", widths: [75, 25] }
+      { id: "narrow-left", label: t.presetNarrowLeft, widths: [25, 75] },
+      { id: "narrow-right", label: t.presetNarrowRight, widths: [75, 25] }
     );
     return presets;
   }
 
   if (columnCount === 3) {
     presets.push(
-      { id: "narrow-left", label: "左を狭く", widths: [15, 30, 55] },
-      { id: "narrow-right", label: "右を狭く", widths: [45, 40, 15] },
-      { id: "wide-center", label: "中央を広く", widths: [20, 60, 20] }
+      { id: "narrow-left", label: t.presetNarrowLeft, widths: [15, 30, 55] },
+      { id: "narrow-right", label: t.presetNarrowRight, widths: [45, 40, 15] },
+      { id: "wide-center", label: t.presetWideCenter, widths: [20, 60, 20] }
     );
     return presets;
   }
@@ -219,17 +223,17 @@ export function buildColumnWidthPresets(
   presets.push(
     {
       id: "narrow-left",
-      label: "左を狭く",
+      label: t.presetNarrowLeft,
       widths: [12, ...restEqual(88, columnCount - 1)],
     },
     {
       id: "narrow-right",
-      label: "右を狭く",
+      label: t.presetNarrowRight,
       widths: [...restEqual(85, columnCount - 1), 15],
     },
     {
       id: "wide-center",
-      label: "中央を広く",
+      label: t.presetWideCenter,
       widths: [15, ...restEqual(70, columnCount - 2), 15],
     }
   );

@@ -33,6 +33,7 @@ vi.mock("@/hooks/useIndexedDbStorage", async () => {
     useIndexedDbStorage: () => {
       const [markdown, setMarkdown] = React.useState(initialMarkdown);
       const [prefs, setPrefs] = React.useState({
+        locale: "ja" as "ja" | "en",
         autoUpdate: true,
         showMarginGuides: false,
         layoutMode: "single" as "single" | "spread",
@@ -313,6 +314,20 @@ describe("Workspace + PopoutPreview paired BroadcastChannel integration (#64)", 
       await waitFor(() => {
         expect(parentNoticeToggle.checked).toBe(false);
       });
+
+      // 7. メイン画面のトップバーで EN へ切り替えると、別ウィンドウ側の UI とプリフライトモーダルも英語へ即時同期される (#71)
+      fireEvent.click(parentScope.getByRole("button", { name: "EN" }));
+      await waitFor(() => {
+        expect(childScope.getByRole("button", { name: "Print" })).toBeTruthy();
+        expect(childScope.getByRole("button", { name: "Dock Back" })).toBeTruthy();
+      });
+      fireEvent.click(childScope.getByRole("button", { name: "Print" }));
+      expect(
+        await childScope.findByText(/Pre-Print Preflight Check \(1 item\(s\)\)/)
+      ).toBeTruthy();
+      expect(
+        childScope.getByText(/Contains restricted NG word "極秘プロジェクト"\./)
+      ).toBeTruthy();
     } finally {
       if (originalOpener) {
         Object.defineProperty(window, "opener", originalOpener);
