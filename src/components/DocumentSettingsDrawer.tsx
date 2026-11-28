@@ -671,14 +671,16 @@ export function DocumentSettingsDrawer({
                       onClick={() =>
                         onChangeFilenameTemplate?.(preset.template)
                       }
-                      className={`flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-left text-[11px] transition ${
+                      className={`flex w-full flex-col items-start gap-0.5 rounded border px-2.5 py-1.5 text-left text-[11px] transition ${
                         active
                           ? "border-sky-500/70 bg-sky-500/15 font-medium text-sky-200"
                           : "border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-700 hover:text-white"
                       }`}
                     >
-                      <span>{filenamePresetLabels[preset.id]}</span>
-                      <span className="font-mono text-[9px] text-slate-400">
+                      <span className="leading-snug">
+                        {filenamePresetLabels[preset.id]}
+                      </span>
+                      <span className="max-w-full break-all font-mono text-[9px] text-slate-400">
                         {preset.template}
                       </span>
                     </button>

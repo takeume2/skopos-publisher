@@ -122,7 +122,7 @@ describe("Workspace i18n JA/EN switching (#71)", () => {
 
     expect(mockUpdatePrefsSpy).toHaveBeenCalledWith({ locale: "en" });
     expect(document.documentElement.lang).toBe("en");
-    expect(screen.getByRole("button", { name: "Export PDF / Print" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "PDF / Print" })).toBeTruthy();
     expect(screen.getByText("Document Settings")).toBeTruthy();
     expect(screen.getByRole("button", { name: "New Document" })).toBeTruthy();
     expect(screen.getByText("Ln 1, Col 1")).toBeTruthy();
@@ -138,7 +138,7 @@ describe("Workspace i18n JA/EN switching (#71)", () => {
     );
 
     // 英語 UI での印刷前プリフライト確認モーダル
-    fireEvent.click(screen.getByRole("button", { name: "Export PDF / Print" }));
+    fireEvent.click(screen.getByRole("button", { name: "PDF / Print" }));
     expect(screen.getByText("Pre-Print Preflight Check (1 item(s))")).toBeTruthy();
     expect(screen.getByText('Draft marker "TBD" still remains.')).toBeTruthy();
     expect(screen.getByRole("button", { name: "Export Anyway" })).toBeTruthy();
