@@ -44,6 +44,8 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
         isSidebarOpen: true,
         filenameTemplate: "{date}_{title}_{confidential}",
         skipPrintHeaderFooterNotice: false,
+        enablePreflightCheck: true,
+        preflightNgWords: "",
       },
       updatePrefs: vi.fn(),
       resetToSample: vi.fn(),

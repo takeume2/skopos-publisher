@@ -12,6 +12,10 @@ const ORIGINAL_APP_TITLE = "Skopos Publisher — Markdown DTP & PDF Publishing";
 let mockMarkdown = "";
 let mockFilenameTemplate = DEFAULT_FILENAME_TEMPLATE;
 let mockSkipPrintHeaderFooterNotice = true;
+let mockEnablePreflightCheck = false;
+let mockPreflightNgWords = "";
+let latestEditorJumpRequest: { line: number; requestId: number } | null | undefined =
+  null;
 const mockSetMarkdown = vi.fn((next: string) => {
   mockMarkdown = next;
 });
@@ -54,6 +58,12 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
     );
     const [skipPrintHeaderFooterNotice, setSkipPrintHeaderFooterNotice] =
       React.useState(mockSkipPrintHeaderFooterNotice);
+    const [enablePreflightCheck, setEnablePreflightCheck] = React.useState(
+      mockEnablePreflightCheck
+    );
+    const [preflightNgWords, setPreflightNgWords] = React.useState(
+      mockPreflightNgWords
+    );
     const setMarkdown = React.useCallback((next: string) => {
       mockSetMarkdown(next);
       setMarkdownState(next);
@@ -76,12 +86,20 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
       async (patch: {
         filenameTemplate?: string;
         skipPrintHeaderFooterNotice?: boolean;
+        enablePreflightCheck?: boolean;
+        preflightNgWords?: string;
       }) => {
         if (typeof patch.filenameTemplate === "string") {
           setFilenameTemplate(patch.filenameTemplate);
         }
         if (typeof patch.skipPrintHeaderFooterNotice === "boolean") {
           setSkipPrintHeaderFooterNotice(patch.skipPrintHeaderFooterNotice);
+        }
+        if (typeof patch.enablePreflightCheck === "boolean") {
+          setEnablePreflightCheck(patch.enablePreflightCheck);
+        }
+        if (typeof patch.preflightNgWords === "string") {
+          setPreflightNgWords(patch.preflightNgWords);
         }
       },
       []
@@ -119,6 +137,8 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
         isSidebarOpen: false,
         filenameTemplate,
         skipPrintHeaderFooterNotice,
+        enablePreflightCheck,
+        preflightNgWords,
       },
       updatePrefs,
       resetToSample: vi.fn(),
@@ -131,7 +151,10 @@ vi.mock("@/hooks/useIndexedDbStorage", () => ({
 }));
 
 vi.mock("@/components/EditorPane", () => ({
-  EditorPane: () => <div data-testid="mock-editor" />,
+  EditorPane: (props: { jumpRequest?: { line: number; requestId: number } | null }) => {
+    latestEditorJumpRequest = props.jumpRequest;
+    return <div data-testid="mock-editor" />;
+  },
 }));
 
 vi.mock("@/components/PagedPreviewPane", () => ({
@@ -157,6 +180,9 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
     document.title = ORIGINAL_APP_TITLE;
     mockFilenameTemplate = DEFAULT_FILENAME_TEMPLATE;
     mockSkipPrintHeaderFooterNotice = true;
+    mockEnablePreflightCheck = false;
+    mockPreflightNgWords = "";
+    latestEditorJumpRequest = null;
     mockAssets = {};
     mockPreviewUpToDate = true;
     mockPreviewRenderNow = vi.fn(async () => ({ ok: true }));
@@ -575,5 +601,83 @@ describe("Workspace PDF print document.title & export filename handling (#19, #1
     fireEvent.click(screen.getByRole("button", { name: "このまま出力" }));
     expect(printSpy).toHaveBeenCalledTimes(1);
     expect(document.title).toBe("20261128_統合確認テスト");
+  });
+
+  it("runs preflight checks before printing, displays summary and findings, jumps to line on click, and prints cleanly when no issues remain (#9)", () => {
+    mockEnablePreflightCheck = true;
+    mockSkipPrintHeaderFooterNotice = true;
+    mockPreflightNgWords = "ProjectX";
+    mockMarkdown = [
+      "---",
+      'title: "提案書"',
+      'author: "営業部"',
+      'date: "2026-11-28"',
+      "cover: true",
+      'confidential_mode: "strict"',
+      'confidential_label: "CONFIDENTIAL"',
+      "---",
+      "",
+      "# 概要",
+      "金額は TBD です。",
+      "社内コード ProjectX の記載あり。",
+    ].join("\n");
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    render(<Workspace />);
+
+    // プリフライト警告があるためモーダルが開き、サマリーと2件の検出が表示される
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("出力前プリフライトチェック（2件の確認事項）")
+    ).toBeTruthy();
+    expect(screen.getByText("表紙: あり")).toBeTruthy();
+    expect(screen.getByText("透かし: CONFIDENTIAL")).toBeTruthy();
+    expect(screen.getByText("未記入・仮表現「TBD」が残っています。")).toBeTruthy();
+    expect(screen.getByText("NG ワード「ProjectX」が含まれています。")).toBeTruthy();
+
+    // 検出行（L11: TBD）をクリックするとモーダルが閉じてエディタへジャンプ要求が飛ぶ
+    fireEvent.click(screen.getByText("未記入・仮表現「TBD」が残っています。"));
+    expect(latestEditorJumpRequest?.line).toBe(11);
+    expect(
+      screen.queryByText("出力前プリフライトチェック（2件の確認事項）")
+    ).toBeNull();
+
+    // 再度押下し「このまま出力」で印刷へ進める
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    fireEvent.click(screen.getByRole("button", { name: "このまま出力" }));
+    expect(printSpy).toHaveBeenCalledTimes(1);
+
+    // 設定ドロワーでプリフライトをオフにするとそのまま即印刷される
+    fireEvent.click(
+      screen.getByLabelText(
+        "印刷前にプリフライトチェック（TBD・仮値・NGワード）を実行する"
+      )
+    );
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("prints directly without modal when preflight finds zero issues and browser notice is skipped (#9)", () => {
+    mockEnablePreflightCheck = true;
+    mockSkipPrintHeaderFooterNotice = true;
+    mockMarkdown = [
+      "---",
+      'title: "確定版仕様書"',
+      'author: "開発チーム"',
+      'date: "2026-11-28"',
+      "cover: true",
+      "---",
+      "",
+      "# 概要",
+      "確定済みの本文です。",
+    ].join("\n");
+    const printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
+
+    render(<Workspace />);
+
+    fireEvent.click(screen.getByRole("button", { name: "PDF出力 / 印刷" }));
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/出力前プリフライトチェック/)).toBeNull();
   });
 });

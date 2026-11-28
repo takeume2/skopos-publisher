@@ -46,6 +46,8 @@ export interface UiPreferences {
   isSidebarOpen: boolean;
   filenameTemplate: string;
   skipPrintHeaderFooterNotice: boolean;
+  enablePreflightCheck: boolean;
+  preflightNgWords: string;
 }
 
 export interface StoredDocument {
@@ -80,6 +82,8 @@ const DEFAULT_PREFS: UiPreferences = {
   isSidebarOpen: true,
   filenameTemplate: DEFAULT_FILENAME_TEMPLATE,
   skipPrintHeaderFooterNotice: false,
+  enablePreflightCheck: true,
+  preflightNgWords: "",
 };
 
 function createDocId(): string {
