@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { clear, get, keys, set } from "idb-keyval";
-import { useIndexedDbStorage } from "@/hooks/useIndexedDbStorage";
+import {
+  formatLocalIsoDate,
+  useIndexedDbStorage,
+} from "@/hooks/useIndexedDbStorage";
 
 describe("useIndexedDbStorage", () => {
   const originalLanguage = Object.getOwnPropertyDescriptor(
@@ -269,5 +272,37 @@ describe("useIndexedDbStorage", () => {
     const remounted = renderHook(() => useIndexedDbStorage());
     await waitFor(() => expect(remounted.result.current.isLoaded).toBe(true));
     expect(remounted.result.current.prefs.locale).toBe("ja");
+  });
+
+  it("formats initial document date using local calendar date rather than UTC (#76)", async () => {
+    expect(formatLocalIsoDate(new Date(2026, 0, 5, 0, 30, 0))).toBe("2026-01-05");
+
+    // ローカル日付と UTC (toISOString) が異なる時刻でもローカル日付が優先されること
+    const localDate = new Date(2026, 4, 1, 0, 30, 0);
+    const toIsoSpy = vi
+      .spyOn(Date.prototype, "toISOString")
+      .mockReturnValue("2026-04-30T15:30:00.000Z");
+
+    expect(formatLocalIsoDate(localDate)).toBe("2026-05-01");
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(localDate);
+      const { result } = renderHook(() => useIndexedDbStorage());
+      await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+      await act(async () => {
+        await result.current.createDocument();
+      });
+      expect(result.current.markdown).toContain('date: "2026-05-01"');
+
+      await act(async () => {
+        await result.current.deleteAllDocuments();
+      });
+      expect(result.current.markdown).toContain('date: "2026-05-01"');
+    } finally {
+      vi.useRealTimers();
+      toIsoSpy.mockRestore();
+    }
   });
 });
