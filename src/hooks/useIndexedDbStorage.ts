@@ -101,13 +101,20 @@ function extractTitle(markdown: string, locale: Locale = "ja"): string {
   return title || getDictionary(locale).common.untitledDocument;
 }
 
+export function formatLocalIsoDate(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function buildBlankMarkdown(
   title?: string,
   locale: Locale = "ja"
 ): string {
   const dict = getDictionary(locale);
   const resolvedTitle = title ?? dict.common.newDocument;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatLocalIsoDate();
   return `---
 title: "${resolvedTitle}"
 subtitle: ""
